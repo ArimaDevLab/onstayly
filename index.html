@@ -30,6 +30,8 @@ body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px
 h1{font-family:var(--display);font-weight:400;font-size:22px;margin:0;letter-spacing:.04em}
 .count{font-family:var(--display);font-size:15px;color:var(--accent)}
 .today,.clock{font-family:var(--display);font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.bell{font-family:var(--display);font-size:13px;color:var(--muted)}
+.bell.on{color:var(--accent-fg);background:var(--accent);padding:1px 8px;border-radius:4px}
 .note{color:var(--muted);font-size:13px;min-width:0;flex:1 1 220px}
 .stage{flex:1;min-height:0;position:relative}
 canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:pointer;outline:none}
@@ -55,6 +57,7 @@ canvas:focus-visible{box-shadow:inset 0 0 0 3px var(--accent)}
   <span class="count" id="count">いま 1人</span>
   <span class="today" id="today" hidden></span>
   <span class="clock" id="clock"></span>
+  <span class="bell" id="bell"></span>
   <span class="note" id="note">話す機能はありません。歩いて、いるだけ。</span>
 </div>
 
