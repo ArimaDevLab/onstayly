@@ -133,6 +133,8 @@ function buildUI(){
     b.addEventListener('click',function(){me.c=i;changed();});
     $('swatches').appendChild(b);
   });
+  $('g-wave').addEventListener('click',function(){doGesture('wave');});
+  $('g-bow').addEventListener('click',function(){doGesture('bow');});
   syncUI();
 }
 function changed(){trackDirty=true;saveLocal();syncUI();if(lastTrace)saveTrace();}
@@ -154,19 +156,57 @@ function connect(){
   try{
     sb=window.supabase.createClient(CFG.url,CFG.key,{auth:{persistSession:false,autoRefreshToken:false},
       realtime:{params:{eventsPerSecond:10}}});
-    ch=sb.channel('town',{config:{presence:{key:myKey},broadcast:{self:false}}});
   }catch(e){offline();return;}
-  ch.on('presence',{event:'sync'},syncPeers)
-    .on('broadcast',{event:'mv'},function(m){onMove(m&&m.payload);})
-    .subscribe(function(status){
-      if(status==='SUBSCRIBED'){online=true;trackDirty=true;lastTrack=0;setNote('話す機能はありません。歩いて、いるだけ。');}
-      else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED'){offline();}
-    });
+  join();
   checkIn();loadTraces();
   setInterval(loadTraces,60000);setInterval(checkIn,300000);
 }
+// 町の回線に入る。切れたら5秒後に入り直す。
+var rejoinT=null;
+function join(){
+  var c;
+  try{c=sb.channel('town',{config:{presence:{key:myKey},broadcast:{self:false}}});}catch(e){offline();rejoinSoon(5000);return;}
+  ch=c;
+  c.on('presence',{event:'sync'},function(){if(c===ch)syncPeers();})
+    .on('broadcast',{event:'mv'},function(m){if(c===ch)onMove(m&&m.payload);})
+    .on('broadcast',{event:'g'},function(m){if(c===ch)onGesture(m&&m.payload);})
+    .subscribe(function(status){
+      if(c!==ch)return;
+      if(status==='SUBSCRIBED'){online=true;trackDirty=true;lastTrack=0;setNote('話す機能はありません。歩いて、いるだけ。');}
+      else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED'){offline();rejoinSoon(5000);}
+    });
+}
+function rejoinSoon(ms){
+  if(rejoinT)return;
+  rejoinT=setTimeout(function(){
+    rejoinT=null;if(online)return;
+    var old=ch;ch=null;try{if(old)sb.removeChannel(old);}catch(e){}
+    join();
+  },ms);
+}
+/* ---------- しぐさ(相手を選ばず、自分がその場で動くだけ) ---------- */
+var GESTURES={wave:1800,bow:1400},lastGesture=0;
+function doGesture(type){
+  var now=performance.now();
+  if(!GESTURES[type]||now-lastGesture<2500)return;
+  lastGesture=now;me.g={type:type,t:now};
+  if(online&&ch)ch.send({type:'broadcast',event:'g',payload:{k:myKey,g:type}});
+}
+function onGesture(p){
+  if(!p||typeof p.k!=='string'||!GESTURES[p.g])return;
+  var o=others[p.k],now=performance.now();if(!o)return;
+  if(o.g&&now-o.g.t<2000)return;
+  o.g={type:p.g,t:now};
+}
+function gestureOf(p){
+  if(!p.g)return null;
+  var k=(performance.now()-p.g.t)/GESTURES[p.g.type];
+  if(k>=1){p.g=null;return null;}
+  return {type:p.g.type,k:k};
+}
 function syncPeers(){
   // 同じブラウザで複数のタブを開いている人は1人として扱う(自分の別タブは出さない)
+  if(!ch)return;
   var state=ch.presenceState(),seen={},who={},k;
   who[traceId]=1;
   var ks=Object.keys(state).sort();
@@ -196,12 +236,12 @@ function onMove(p){
   o.tx=tx;o.ty=ty;o.direct=!!p.d;o.stuck=0;
 }
 function sendMove(tx,ty,direct){
-  if(!online)return;
+  if(!online||!ch)return;
   ch.send({type:'broadcast',event:'mv',payload:{k:myKey,x:Math.round(me.x),y:Math.round(me.y),
     tx:Math.round(tx),ty:Math.round(ty),d:direct?1:0}});
 }
 function track(now){
-  if(!online||!trackDirty||now-lastTrack<1000)return;
+  if(!online||!ch||!trackDirty||now-lastTrack<1000)return;
   lastTrack=now;trackDirty=false;
   ch.track({x:Math.round(me.x),y:Math.round(me.y),st:me.st,c:me.c,t:traceId});
 }
@@ -237,6 +277,7 @@ function stepTrace(dt){
   if(stillT>15&&(traceStale()||Date.now()-traceAt>300000))saveTrace();
 }
 document.addEventListener('visibilitychange',function(){
+  if(document.visibilityState==='visible'&&sb&&!online){clearTimeout(rejoinT);rejoinT=null;rejoinSoon(300);}
   if(document.visibilityState==='hidden'){saveLocal();if(traceStale()||Date.now()-traceAt>60000)saveTrace();}
 });
 
@@ -270,7 +311,7 @@ function walk(p,vx,vy,dt,free){
   var d=Math.hypot(p.x-ox,p.y-oy);
   if(Math.abs(vx)>0.2)p.dir=vx>0?1:-1;
   p.phase+=dt*9;p.fd+=d;
-  if(p.fd>20){p.fd=0;p.side=-p.side;foot.push({x:p.x+p.side*3,y:p.y,t:Date.now()});if(foot.length>700)foot.shift();}
+  if(p.fd>20){p.fd=0;p.side=-p.side;var fz=zoneAt(p.x,p.y);if(!fz||fz.st!=='bath')foot.push({x:p.x+p.side*3,y:p.y,t:Date.now()});if(foot.length>700)foot.shift();}
   return d;
 }
 function toward(p,dt,free){
@@ -479,12 +520,21 @@ function drawBody(p,isMe,still,bath){
   if(!bath){ctx.fillStyle='#39424d';
     ctx.fillRect(x-6+sw*3,y-12,5,12-Math.max(0,sw)*2);
     ctx.fillRect(x+1-sw*3,y-12,5,12-Math.max(0,-sw)*2);}
+  var g=gestureOf(p),bow=g&&g.type==='bow',wave=g&&g.type==='wave';
+  if(bow){ctx.save();ctx.translate(x,y-12);ctx.rotate(p.dir*Math.sin(g.k*Math.PI)*0.5);ctx.translate(-x,-(y-12));}
   ctx.fillStyle=COLORS[p.c]||COLORS[5];rr(x-8,y-28+bob,16,18,4);ctx.fill();
-  ctx.fillRect(x-11,y-26+bob+sw*2,4,11);ctx.fillRect(x+7,y-26+bob-sw*2,4,11);
+  if(!(wave&&p.dir<0))ctx.fillRect(x-11,y-26+bob+sw*2,4,11);
+  if(!(wave&&p.dir>0))ctx.fillRect(x+7,y-26+bob-sw*2,4,11);
+  if(wave){
+    // 向いている側の腕を上げて振る
+    ctx.save();ctx.translate(x+9*p.dir,y-25+bob);ctx.rotate(-p.dir*(2.5+Math.sin(g.k*Math.PI*6)*0.45));
+    ctx.fillRect(-2,0,4,12);ctx.fillStyle='#f0cfae';ctx.beginPath();ctx.arc(0,13,2.6,0,7);ctx.fill();ctx.restore();
+  }
   ctx.fillStyle='#f0cfae';ctx.beginPath();ctx.arc(x,y-35+bob,8,0,7);ctx.fill();
   ctx.fillStyle='#3a2c26';ctx.beginPath();ctx.arc(x,y-37+bob,8,Math.PI,0);ctx.fill();
   ctx.fillRect(x-8*p.dir-(p.dir>0?0:3),y-38+bob,3,6);
   ctx.fillStyle='#2b2422';ctx.fillRect(x+3*p.dir-1,y-35+bob,2,2);
+  if(bow)ctx.restore();
   if(bath){ctx.fillStyle='#8fd0da';ctx.beginPath();ctx.ellipse(x,p.y-3,14,6,0,0,7);ctx.fill();
     ctx.strokeStyle='rgba(255,255,255,.7)';ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(x,p.y-3,14,6,0,0,7);ctx.stroke();}
 }
