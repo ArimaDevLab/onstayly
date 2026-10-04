@@ -18,25 +18,30 @@ create table if not exists public.visits (
 );
 
 -- テーブルへの直接アクセスは全て禁止し、下の関数だけを入口にします。
+-- していることの種類を増やしたときは、ここの一覧も増やす
+alter table public.traces drop constraint if exists traces_st_check;
+alter table public.traces add constraint traces_st_check check (st in
+  ('zone','study','work','game','read','draw','music','eat','cook','exercise','bath','rest','walk','sleep'));
+
 alter table public.traces enable row level security;
 alter table public.visits enable row level security;
 
--- 痕跡を残す(同じ人の痕跡は1つだけ。3時間より古いものはここで消える)
+-- 痕跡を残す(同じ人の痕跡は1つだけ。8時間より古いものはここで消える)
 create or replace function public.leave_trace(tid uuid, px int, py int, pst text, pc int)
 returns void language sql security definer set search_path = public as $$
-  delete from traces where updated_at < now() - interval '3 hours';
+  delete from traces where updated_at < now() - interval '8 hours';
   insert into traces (id, x, y, st, c) values (tid, px, py, pst, pc)
   on conflict (id) do update
     set x = excluded.x, y = excluded.y, st = excluded.st, c = excluded.c, updated_at = now();
 $$;
 
--- 直近3時間の痕跡
+-- 直近3時間の痕跡(「おやすみ中」だけは朝まで残すので8時間)
 create or replace function public.recent_traces()
 returns table (id uuid, x int, y int, st text, c int, age_seconds int)
 language sql stable security definer set search_path = public as $$
   select t.id, t.x, t.y, t.st, t.c, extract(epoch from now() - t.updated_at)::int
   from traces t
-  where t.updated_at > now() - interval '3 hours'
+  where t.updated_at > now() - (case when t.st = 'sleep' then interval '8 hours' else interval '3 hours' end)
   order by t.updated_at desc
   limit 200;
 $$;
