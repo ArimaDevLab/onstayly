@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>いるだけの町</title>
+<meta name="description" content="話さなくていい。歩いているだけで、ほかの人の気配がわかる小さな町。">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Zen+Maru+Gothic:wght@400;500;700&display=swap">
+<style>
+:root{
+  --bg:#eef1ea; --panel:#f8faf5; --fg:#22302b; --muted:#5d6d66; --line:#cfd8cf;
+  --accent:#2c7a68; --accent-fg:#ffffff; --chip:#e3e9e0;
+  --display:"DotGothic16","Zen Maru Gothic","Hiragino Maru Gothic ProN","Yu Gothic",sans-serif;
+  --body:"Zen Maru Gothic","Hiragino Maru Gothic ProN","Yu Gothic","Meiryo",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#131a19; --panel:#1b2423; --fg:#e4ece7; --muted:#9aaba4; --line:#2e3b39;
+    --accent:#6cc5ae; --accent-fg:#0f1716; --chip:#27322f; color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.6;
+  display:flex;flex-direction:column;overflow:hidden;height:100dvh;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+[hidden]{display:none!important}
+.top{background:var(--panel);border-bottom:1px solid var(--line);padding:10px 16px;
+  display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px}
+h1{font-family:var(--display);font-weight:400;font-size:22px;margin:0;letter-spacing:.04em}
+.count{font-family:var(--display);font-size:15px;color:var(--accent)}
+.today,.clock{font-family:var(--display);font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.note{color:var(--muted);font-size:13px;min-width:0;flex:1 1 220px}
+.stage{flex:1;min-height:0;position:relative}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:pointer;outline:none}
+canvas:focus-visible{box-shadow:inset 0 0 0 3px var(--accent)}
+.bottom{background:var(--panel);border-top:1px solid var(--line);padding:10px 16px;
+  display:flex;flex-direction:column;gap:8px}
+.row{display:flex;align-items:center;gap:10px;min-width:0}
+.lbl{font-size:13px;color:var(--muted);white-space:nowrap}
+.chips{display:flex;gap:6px;overflow-x:auto;min-width:0;padding-block:3px;scrollbar-width:thin}
+.chip{font-family:var(--display);font-size:14px;white-space:nowrap;border:1px solid var(--line);background:var(--chip);
+  color:var(--fg);padding:6px 12px;border-radius:4px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.chip:focus-visible,.swatch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.swatches{display:flex;gap:6px}
+.swatch{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);cursor:pointer;padding:0}
+.swatch[aria-pressed="true"]{border-color:var(--fg)}
+.help{font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>いるだけの町</h1>
+  <span class="count" id="count">いま 1人</span>
+  <span class="today" id="today" hidden></span>
+  <span class="clock" id="clock"></span>
+  <span class="note" id="note">話す機能はありません。歩いて、いるだけ。</span>
+</div>
+
+<div class="stage" id="stage">
+  <canvas id="town" tabindex="0" aria-label="町。タップした場所へ歩きます。矢印キーでも歩けます。"></canvas>
+</div>
+
+<div class="bottom">
+  <div class="row">
+    <span class="lbl">いま</span>
+    <div class="chips" id="chips" role="group" aria-label="いましていること"></div>
+  </div>
+  <div class="row">
+    <span class="lbl">服の色</span>
+    <div class="swatches" id="swatches" role="group" aria-label="服の色"></div>
+    <span class="help">タップした場所へ歩きます</span>
+  </div>
+</div>
+
+<script src="vendor/supabase-2.117.2.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
