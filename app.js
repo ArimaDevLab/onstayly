@@ -75,7 +75,7 @@ var foot=[];        // 足あと {x,y,t}
 /* 動物。動きは時計から決まるので、全員に同じ場所に見える。
    道順を1つずつ進み、着いた先でしばらく座る。 */
 var CAT_ROUTE=[[880,772],[930,690],[1080,700],[1240,700],[1262,792],[1230,890],[1082,888],[920,880]];
-var DOG_ROUTE=[[150,445],[520,445],[675,445],[675,230],[675,445],[915,445],[915,560],[915,445],[1250,445],[915,445],[675,445],[520,445]];
+var DOG_ROUTE=[[150,476],[520,476],[722,476],[722,230],[722,476],[915,476],[915,560],[915,476],[1250,476],[915,476],[722,476],[520,476]]; // 車道を避けて道ばたを歩く
 var PETS={cat:{x:880,y:772,dir:1,sitting:true,phase:0},dog:{x:150,y:445,dir:1,sitting:true,phase:0}};
 function petAt(route,T,sit,walk){
   var L=sit+walk,k=Math.floor(T/L),ph=T-k*L,n=route.length,a=route[k%n],b=route[(k+1)%n],pv=route[(k+n-1)%n];
@@ -720,6 +720,46 @@ function drawBody(p,isMe,still,bath){
   if(bath){ctx.fillStyle='#8fd0da';ctx.beginPath();ctx.ellipse(x,p.y-3,14,6,0,0,7);ctx.fill();
     ctx.strokeStyle='rgba(255,255,255,.7)';ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(x,p.y-3,14,6,0,0,7);ctx.stroke();}
 }
+/* 車。大通りをゆっくり走る。出てくる時刻は時計から決まり、前に人がいると止まって待つ。
+   20秒ごとに1台ぶんの枠があり、昼は半分ほど、深夜は1割ほどの枠に車が来る。 */
+var CAR_SLOT=20,CAR_SPEED=85,CAR_COLORS=['#c94f4f','#4f7fc9','#e0b64a','#6fa377','#8a8f98','#f2efe6'];
+var cars={};
+function stepCars(dt){
+  var T=Date.now()/1000,s0=Math.floor(T/CAR_SLOT),hr=townTime().h,rate=(hr>=22||hr<6)?10:(FORCE==='car'?100:48),s,k;
+  for(s=s0-3;s<=s0;s++){
+    if(cars[s])continue;
+    var hv=h32(s*13+5),dir=(hv>>>8)&1?1:-1;
+    if(hv%100>=rate)continue;
+    if(dir>0&&wx.cart)continue; // 屋台がいる間、同じ車線には来ない
+    var age=T-s*CAR_SLOT,x=dir>0?-60+age*CAR_SPEED:W+60-age*CAR_SPEED;
+    if(x<-60||x>W+60)continue;
+    cars[s]={x:x,y:dir>0?456:420,dir:dir,c:CAR_COLORS[(hv>>>12)%CAR_COLORS.length],wait:0,v:CAR_SPEED};
+  }
+  for(k in cars){
+    var c=cars[k],stop=false,ahead;
+    function blocks(px,py){ahead=(px-c.x)*c.dir;return Math.abs(py-c.y)<17&&ahead>14&&ahead<78;}
+    if(c.wait<12){
+      if(blocks(me.x,me.y))stop=true;
+      for(var o in others)if(blocks(others[o].x,others[o].y))stop=true;
+    }
+    for(var j in cars)if(j!==k&&cars[j].dir===c.dir&&(cars[j].x-c.x)*c.dir>0&&(cars[j].x-c.x)*c.dir<70)stop=true;
+    if(wx.cart&&c.dir>0&&(wx.cart.x-c.x)>0&&(wx.cart.x-c.x)<110)stop=true;
+    if(stop)c.wait+=dt;
+    c.v+=((stop?0:CAR_SPEED)-c.v)*Math.min(1,dt*5);
+    c.x+=c.v*c.dir*dt;
+    if(c.x<-70||c.x>W+70)delete cars[k];
+  }
+}
+function drawCar(c){
+  var x=c.x,y=c.y,d=c.dir;
+  ctx.fillStyle='rgba(20,40,20,.22)';ctx.beginPath();ctx.ellipse(x,y,27,6,0,0,7);ctx.fill();
+  ctx.fillStyle='#2b2422';ctx.beginPath();ctx.arc(x-14,y-4,5,0,7);ctx.arc(x+14,y-4,5,0,7);ctx.fill();
+  ctx.fillStyle=c.c;rr(x-25,y-18,50,13,4);ctx.fill();
+  rr(x-13-2*d,y-27,28,12,5);ctx.fill();
+  ctx.fillStyle='#bcd9e6';ctx.fillRect(x-9-2*d,y-24,9,7);ctx.fillRect(x+2-2*d,y-24,9,7);
+  ctx.fillStyle='#fff3b0';ctx.fillRect(x+(d>0?22:-25),y-15,3,4);
+  ctx.fillStyle='#d9534f';ctx.fillRect(x+(d>0?-25:22),y-15,3,4);
+}
 function drawFire(t){
   var x=FIRE.x,y=FIRE.y,i;
   ctx.fillStyle='#5f4731';ctx.save();ctx.translate(x,y-3);ctx.rotate(0.35);ctx.fillRect(-13,-3,26,6);ctx.rotate(-0.7);ctx.fillRect(-13,-3,26,6);ctx.restore();
@@ -858,7 +898,7 @@ function frame(t){
   var dt=Math.min(0.05,(t-last)/1000||0);last=t;
   stepMe(dt,t);if(!me.moving)me.phase+=dt*9;
   var k;for(k in others){stepOther(others[k],dt);if(!others[k].moving)others[k].phase+=dt*9;}
-  updatePets();stepTrace(dt);track(t);
+  updatePets();stepCars(dt);stepTrace(dt);track(t);
   bellT-=dt;if(bellT<=0){bellT=1;updateBell();}
   clockT-=dt;if(clockT<=0){clockT=20;light=daylight();$('clock').textContent=light.text;}
 
@@ -877,6 +917,7 @@ function frame(t){
   LAMPS.forEach(function(p){items.push([p[1],3,p]);});
   items.push([TOWER.y,8,TOWER]);
   if(wx.cart)items.push([455,9,wx.cart]);
+  for(k in cars)items.push([cars[k].y,12,cars[k]]);
   ghosts.forEach(function(g){items.push([g.y,7,g]);});
   for(k in others)items.push([others[k].y,4,others[k]]);
   items.push([me.y,5,me]);items.push([PETS.cat.y,6,PETS.cat]);items.push([PETS.dog.y,10,PETS.dog]);items.push([FIRE.y,11,FIRE]);
@@ -890,6 +931,7 @@ function frame(t){
     else if(it[1]===9)drawCart(o,t);
     else if(it[1]===10)drawDog(o,t);
     else if(it[1]===11)drawFire(t);
+    else if(it[1]===12)drawCar(o);
     else drawCat(o,t);});
   if(wx.rain>0){ctx.fillStyle=(wx.snow?'rgba(225,232,240,':'rgba(60,80,115,')+(0.17*wx.rain)+')';ctx.fillRect(camX,camY,vw,vh);}
   if(!reduce)drawSteam(t);
@@ -900,6 +942,9 @@ function frame(t){
     LAMPS.forEach(function(p){var g=ctx.createRadialGradient(p[0],p[1]-40,2,p[0],p[1]-20,90);
       g.addColorStop(0,'rgba(255,225,140,'+(0.5*light.dark)+')');g.addColorStop(1,'rgba(255,225,140,0)');
       ctx.fillStyle=g;ctx.fillRect(p[0]-90,p[1]-110,180,180);});
+    for(var ck in cars){var cc=cars[ck],hx=cc.x+cc.dir*46,hg=ctx.createRadialGradient(hx,cc.y-10,2,hx,cc.y-10,46);
+      hg.addColorStop(0,'rgba(255,240,170,'+(0.5*light.dark)+')');hg.addColorStop(1,'rgba(255,240,170,0)');
+      ctx.fillStyle=hg;ctx.fillRect(hx-46,cc.y-56,92,92);}
     var fg=ctx.createRadialGradient(FIRE.x,FIRE.y-12,4,FIRE.x,FIRE.y-12,120);
     fg.addColorStop(0,'rgba(255,170,80,'+(0.6*light.dark)+')');fg.addColorStop(1,'rgba(255,170,80,0)');
     ctx.fillStyle=fg;ctx.fillRect(FIRE.x-120,FIRE.y-132,240,240);
@@ -923,7 +968,8 @@ function frame(t){
 window.onstaylyTown={env:function(){
   var b=zoneBySt('bath');
   function near(px,py){var d=Math.hypot(me.x-px,me.y-py),f=Math.max(0,Math.min(1,1-(d-70)/320));return f*f;}
-  return {rain:wx.snow?0:wx.rain,night:wx.rain>0?0:light.dark,bath:near(b.x+b.w/2,b.y+b.h/2),pond:near(POND.x,POND.y),fire:near(FIRE.x,FIRE.y)};
+  var car=0,any=0,ck;for(ck in cars){any=1;car=Math.max(car,near(cars[ck].x,cars[ck].y)*(0.35+0.65*cars[ck].v/CAR_SPEED));}
+  return {car:car,anyCar:any,rain:wx.snow?0:wx.rain,night:wx.rain>0?0:light.dark,bath:near(b.x+b.w/2,b.y+b.h/2),pond:near(POND.x,POND.y),fire:near(FIRE.x,FIRE.y)};
 }};
 start();
 })();

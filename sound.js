@@ -5,9 +5,9 @@
 (function(){
 'use strict';
 var town=window.onstaylyTown;
-var CH=['rain','bugs','bath','pond','fire'];
+var CH=['rain','bugs','bath','pond','fire','car'];
 var $=function(id){return document.getElementById(id);};
-var set={auto:true,master:50,rain:60,bugs:60,bath:60,pond:60,fire:60};
+var set={auto:true,master:50,rain:60,bugs:60,bath:60,pond:60,fire:60,car:50};
 try{var saved=JSON.parse(localStorage.getItem('irudake-sound')||'null');
   if(saved)Object.keys(set).forEach(function(k){if(typeof saved[k]===typeof set[k])set[k]=saved[k];});}catch(e){}
 function save(){try{localStorage.setItem('irudake-sound',JSON.stringify(set));}catch(e){}}
@@ -60,6 +60,11 @@ function build(){
   // 焚き火: 低いごうごうという音。ぱちぱちは下の tick で足す
   var rum=gain(0.5);lfo(0.9,0.15,rum.gain);
   chain(noiseSrc(),filt('lowpass',260),rum,g.fire);
+
+  // 車: タイヤが道をこする音に、低いエンジンのうなりを重ねる
+  chain(noiseSrc(),filt('bandpass',520,0.6),gain(0.5),g.car);
+  var eng=ctx.createOscillator(),engF=filt('lowpass',180);eng.type='sawtooth';eng.frequency.value=62;eng.start();
+  chain(eng,engF,gain(0.12),g.car);
   return true;
 }
 function level(k){return g[k]?g[k].gain.value:0;}
@@ -77,11 +82,12 @@ function drip(dest,v){
 // 0.25秒ごとに、天気と立ち位置から各音の大きさを決め、ぱちぱち・ぽちゃんを足す
 function tick(){
   if(!ctx)return;
-  var env=town?town.env():{rain:1,night:1,bath:1,pond:1,fire:1};
-  var f={rain:env.rain,bugs:env.night,bath:env.bath,pond:env.pond,fire:env.fire},t=ctx.currentTime,heard=[];
+  var env=town?town.env():{rain:1,night:1,bath:1,pond:1,fire:1,car:1,anyCar:1};
+  var f={rain:env.rain,bugs:env.night,bath:env.bath,pond:env.pond,fire:env.fire,car:env.car},t=ctx.currentTime,heard=[];
   CH.forEach(function(k){
-    var v=on?(set[k]/100)*(set.auto?f[k]:1):0;
-    g[k].gain.setTargetAtTime(v,t,0.5);
+    // 車だけは「合わせる」を切っても鳴りっぱなしにせず、車が通っている間だけ鳴らす
+    var v=on?(set[k]/100)*(set.auto?f[k]:k==='car'?env.anyCar:1):0;
+    g[k].gain.setTargetAtTime(v,t,k==='car'?0.25:0.5);
     if(v>0.02)heard.push(NAMES[k]);
   });
   master.gain.setTargetAtTime(set.master/100,t,0.1);
@@ -92,9 +98,9 @@ function tick(){
   }
   $('snd-note').textContent=!on?'初めは無音です。「音を鳴らす」で始まります。':
     heard.length?'いま聞こえる音: '+heard.join('、'):
-    set.auto?'いまは静かです。雨の日、夜、露天風呂・池・焚き火の近くで聞こえます。':'すべての音量が0です。';
+    set.auto?'いまは静かです。雨の日、夜、露天風呂・池・焚き火の近く、車が通るときに聞こえます。':'すべての音量が0です。';
 }
-var NAMES={rain:'雨',bugs:'虫の声',bath:'お湯',pond:'池',fire:'焚き火'};
+var NAMES={rain:'雨',bugs:'虫の声',bath:'お湯',pond:'池',fire:'焚き火',car:'車'};
 
 /* ---------- 画面 ---------- */
 var panel=$('snd-panel'),openBtn=$('snd-open'),onBtn=$('snd-on');
