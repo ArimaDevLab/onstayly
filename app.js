@@ -117,11 +117,16 @@ function connect(){
   setInterval(loadTraces,60000);setInterval(checkIn,300000);
 }
 function syncPeers(){
-  var state=ch.presenceState(),seen={},k;
-  for(k in state){
+  // 同じブラウザで複数のタブを開いている人は1人として扱う(自分の別タブは出さない)
+  var state=ch.presenceState(),seen={},who={},k;
+  who[traceId]=1;
+  var ks=Object.keys(state).sort();
+  for(var i=0;i<ks.length;i++){
+    k=ks[i];
     if(k===myKey)continue;
     var m=state[k]&&state[k][0];if(!m)continue;
     var x=num(m.x,0,W),y=num(m.y,0,H);if(x===null||y===null)continue;
+    if(typeof m.t==='string'){if(who[m.t])continue;who[m.t]=1;}
     seen[k]=1;
     var o=others[k];
     if(!o)o=others[k]={x:x,y:y,tx:null,ty:null,phase:0,moving:false,dir:1,fd:0,side:1};
@@ -334,14 +339,32 @@ function drawCat(){
   ctx.fillRect(x+8*d-5,y-17,3,4);ctx.fillRect(x+8*d+2,y-17,3,4);
   ctx.fillRect(x-9*d-(d>0?2:0),y-14,2,8);
 }
-function drawLabel(p,text,fill,alpha){
-  ctx.globalAlpha=alpha;
+// 表示が重ならないよう、先に置いたものを避けて上へずらす。優先順は 自分 → ほかの人 → 痕跡。
+function placeLabels(list){
+  ctx.font='13px DotGothic16, sans-serif';
+  var placed=[];
+  list.forEach(function(L){
+    L.w=ctx.measureText(L.text).width+14;L.x=L.p.x;L.y=L.p.y-58;
+    for(var n=0;n<8;n++){
+      var hit=false;
+      for(var i=0;i<placed.length;i++){var q=placed[i];
+        if(Math.abs(q.x-L.x)<(q.w+L.w)/2+4&&Math.abs(q.y-L.y)<23){hit=true;break;}}
+      if(!hit)break;
+      L.y-=24;
+    }
+    placed.push(L);
+  });
+  for(var j=list.length-1;j>=0;j--)drawLabel(list[j]);
+}
+function drawLabel(L){
+  var x=L.x,y=L.y,base=L.p.y-58;
+  ctx.globalAlpha=L.alpha;
   ctx.font='13px DotGothic16, sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
-  var tw=ctx.measureText(text).width+14,x=p.x,y=p.y-58;
-  ctx.fillStyle=fill;rr(x-tw/2,y-10,tw,20,4);ctx.fill();
+  if(y<base){ctx.strokeStyle='#2c3a36';ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(x,y+10);ctx.lineTo(x,base+12);ctx.stroke();}
+  ctx.fillStyle=L.fill;rr(x-L.w/2,y-10,L.w,20,4);ctx.fill();
   ctx.strokeStyle='#2c3a36';ctx.lineWidth=1.2;ctx.stroke();
-  ctx.beginPath();ctx.moveTo(x-4,y+9.4);ctx.lineTo(x+4,y+9.4);ctx.lineTo(x,y+14);ctx.closePath();ctx.fillStyle=fill;ctx.fill();
-  ctx.fillStyle='#22302b';ctx.fillText(text,x,y+1);
+  if(y===base){ctx.beginPath();ctx.moveTo(x-4,y+9.4);ctx.lineTo(x+4,y+9.4);ctx.lineTo(x,y+14);ctx.closePath();ctx.fillStyle=L.fill;ctx.fill();}
+  ctx.fillStyle='#22302b';ctx.fillText(L.text,x,y+1);
   ctx.globalAlpha=1;
 }
 function ageText(s){
@@ -409,9 +432,10 @@ function frame(t){
     BUILDINGS.forEach(function(b){winRects(b).forEach(function(w){ctx.fillRect(w[0],w[1],w[2],w[3]);});});
     ctx.globalCompositeOperation='source-over';
   }
-  ghosts.forEach(function(g){drawLabel(g,STATUS_MAP[g.st]+'・'+ageText(g.now),'#ffffff',Math.min(0.75,g.alpha+0.2));});
-  for(k in others)drawLabel(others[k],STATUS_MAP[others[k].st],'#ffffff',1);
-  drawLabel(me,'あなた・'+STATUS_MAP[me.st],'#fff7c2',1);
+  var labels=[{p:me,text:'あなた・'+STATUS_MAP[me.st],fill:'#fff7c2',alpha:1}];
+  Object.keys(others).sort().forEach(function(key){labels.push({p:others[key],text:STATUS_MAP[others[key].st],fill:'#ffffff',alpha:1});});
+  ghosts.forEach(function(g){labels.push({p:g,text:STATUS_MAP[g.st]+'・'+ageText(g.now),fill:'#ffffff',alpha:Math.min(0.75,g.alpha+0.2)});});
+  placeLabels(labels);
   requestAnimationFrame(frame);
 }
 start();
