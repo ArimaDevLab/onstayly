@@ -46,6 +46,36 @@ var BELLS=[
   {h:23,m:30,len:60,st:'sleep',name:'消灯'}
 ];
 var TOWER={x:585,y:394};
+/* 図書館の中。町とは別の部屋で、同じ部屋にいる人だけが見える。 */
+var LIB={w:900,h:600,door:{x:250,y:250},out:{x:250,y:278},inn:{x:450,y:556}};
+var LIB_ZONES=[
+  {r:'lib',st:'read',name:'読書コーナー',x:650,y:372,w:215,h:206},
+  {r:'lib',st:'study',name:'',x:0,y:0,w:900,h:600}
+];
+var LIB_DESKS=[],LIB_SEATS=[];
+(function(){
+  for(var j=0;j<3;j++)for(var i=0;i<3;i++){var d={x:80+i*190,y:215+j*110,w:120,h:30};LIB_DESKS.push(d);
+    LIB_SEATS.push({x:d.x+32,y:d.y+6,desk:d},{x:d.x+88,y:d.y+6,desk:d});}
+  [[700,440],[790,440],[700,525],[820,525]].forEach(function(c){LIB_SEATS.push({x:c[0],y:c[1],chair:true});});
+})();
+function roomOf(p){return p.r==='lib'?'lib':'town';}
+function here(p){return roomOf(p)===me.r;}
+function seatOf(p){
+  if(roomOf(p)!=='lib'||p.moving)return null;
+  for(var i=0;i<LIB_SEATS.length;i++){var q=LIB_SEATS[i];if(Math.abs(p.x-q.x)<5&&Math.abs(p.y-q.y)<5)return q;}
+  return null;
+}
+function libBlocked(x,y){
+  if(Math.abs(x-LIB.inn.x)<40&&y>580&&y<=602)return false; // 出口のマット
+  return x<40||x>860||y<134||y>586;
+}
+// みんなで同じ時計を使うポモドーロ(毎時 0〜25分・30〜55分が集中、残り5分ずつが休憩)
+function pomodoro(){
+  var d=new Date(),m=d.getMinutes()%30,sec=d.getSeconds(),focus=m<25,left=(focus?25-m:30-m)*60-sec;
+  return {focus:focus,left:left,frac:focus?(m*60+sec)/1500:((m-25)*60+sec)/300,
+    text:(focus?'集中':'休憩')+' あと'+Math.floor(left/60)+':'+String(left%60).padStart(2,'0')};
+}
+function libCount(){var n=me.r==='lib'?1:0;for(var k in others)if(roomOf(others[k])==='lib')n++;return n;}
 var SLEEP_TTL=8*3600; // 「おやすみ中」の痕跡は朝まで残す
 var POND={x:1080,y:790,rx:120,ry:62};
 var TREES=[[50,130],[420,290],[610,150],[750,130],[1345,150],[1355,345],[590,350],[40,345],[600,640],[30,810],
@@ -68,7 +98,7 @@ function colorIdx(v,fallback){return (Number.isInteger(v)&&v>=0&&v<COLORS.length
 var myKey=uuid();                       // このタブ
 var traceId=storedId('irudake-trace');  // 自分の痕跡(1人1つ)
 var visitorId=storedId('irudake-visitor'); // 今日の人数を数えるためだけの番号
-var me={x:675,y:435,st:'zone',manual:'zone',zone:null,c:0,tx:null,ty:null,phase:0,moving:false,dir:1,fd:0,side:1};
+var me={r:'town',ss:0,x:675,y:435,st:'zone',manual:'zone',zone:null,c:0,tx:null,ty:null,phase:0,moving:false,dir:1,fd:0,side:1};
 var others={};      // presence key -> 人
 var traces=[],tracesAt=0;
 var foot=[];        // 足あと {x,y,t}
@@ -89,14 +119,14 @@ function updatePets(){
   PETS.dog=petAt(DOG_ROUTE,T+20,40,24);
   PETS.cat.loved=petLoved(PETS.cat);PETS.dog.loved=petLoved(PETS.dog);
 }
-function nearPet(p,a){return a.sitting&&!p.moving&&Math.hypot(p.x-a.x,p.y-a.y)<40;}
+function nearPet(p,a){return roomOf(p)==='town'&&a.sitting&&!p.moving&&Math.hypot(p.x-a.x,p.y-a.y)<40;}
 function petLoved(a){
   if(nearPet(me,a))return true;
   for(var k in others)if(nearPet(others[k],a))return true;
   return false;
 }
 function onBench(p){
-  if(p.moving)return false;
+  if(p.moving||roomOf(p)!=='town')return false;
   for(var i=0;i<BENCHES.length;i++){var b=BENCHES[i];if(Math.abs(p.x-b[0])<22&&p.y>b[1]-4&&p.y<b[1]+16)return true;}
   return false;
 }
@@ -106,7 +136,7 @@ function hasItem(p){return !!(p.it&&ITEMS[p.it]&&p.iu>Date.now());}
 function stepCartGift(){
   var c=wx.cart;
   if(me.it&&!hasItem(me)){me.it=null;me.iu=0;trackDirty=true;}
-  if(!c||!c.stopped||me.moving||hasItem(me))return;
+  if(!c||!c.stopped||me.moving||hasItem(me)||me.r!=='town')return;
   if(Math.abs(me.x-(c.x-4))<75&&Math.abs(me.y-455)<45){me.it=c.warm?'imo':'ice';me.iu=Date.now()+240000;trackDirty=true;}
 }
 function drawItem(p,x,y){
@@ -124,12 +154,17 @@ function statusText(p){
   if(nearPet(p,PETS.cat))return 'ねこといっしょ';
   if(nearPet(p,PETS.dog))return 'いぬといっしょ';
   if(hasItem(p))return ITEMS[p.it];
+  if(p.ss&&seatOf(p)){ // 図書館の席に着いてからの時間
+    var mins=Math.floor((Date.now()-p.ss)/60000);
+    if(mins>=1)return STATUS_MAP[p.st]+' '+(mins>=60?Math.floor(mins/60)+'時間'+(mins%60)+'分':mins+'分');
+  }
   return STATUS_MAP[p.st];
 }
 var keys={};
 
-function saveLocal(){lsSet('irudake-me',JSON.stringify({x:me.x,y:me.y,st:me.manual,c:me.c}));}
+function saveLocal(){lsSet('irudake-me',JSON.stringify({x:me.x,y:me.y,st:me.manual,c:me.c,r:me.r,ss:me.ss,at:Date.now()}));}
 function blocked(x,y){
+  if(me.r==='lib')return libBlocked(x,y);
   if(x<14||y<24||x>W-14||y>H-6)return true;
   for(var i=0;i<BUILDINGS.length;i++){var b=BUILDINGS[i];
     if(x>b.x-8&&x<b.x+b.w+8&&y>b.y+b.h*0.35&&y<b.y+b.h+6)return true;}
@@ -138,14 +173,17 @@ function blocked(x,y){
   return dx*dx+dy*dy<1;
 }
 
+function inRect(p,z){return p.x>=z.x&&p.x<=z.x+z.w&&p.y>=z.y&&p.y<=z.y+z.h;}
+// 自分がいる部屋の中で、その位置にある場所
 function zoneAt(x,y){
-  for(var i=0;i<ZONES.length;i++){var z=ZONES[i];if(x>=z.x&&x<=z.x+z.w&&y>=z.y&&y<=z.y+z.h)return z;}
+  var list=me.r==='lib'?LIB_ZONES:ZONES,q={x:x,y:y};
+  for(var i=0;i<list.length;i++)if(inRect(q,list[i]))return list[i];
   return null;
 }
 function zoneBySt(st){for(var i=0;i<ZONES.length;i++)if(ZONES[i].st===st)return ZONES[i];return null;}
 function zoneCount(z){
-  var n=zoneAt(me.x,me.y)===z?1:0,k;
-  for(k in others)if(zoneAt(others[k].x,others[k].y)===z)n++;
+  var room=z.r||'town',n=(me.r===room&&inRect(me,z))?1:0,k;
+  for(k in others)if(roomOf(others[k])===room&&inRect(others[k],z))n++;
   return n;
 }
 // 場所に入ったらその表示に、出たら自分で選んだ表示に戻す
@@ -168,8 +206,11 @@ function bellState(){
 function start(){
   var s={};try{s=JSON.parse(lsGet('irudake-me')||'{}')||{};}catch(e){}
   var x=num(s.x,0,W),y=num(s.y,0,H);
+  me.r=s.r==='lib'?'lib':'town';
   if(x!==null&&y!==null&&!blocked(x,y)){me.x=x;me.y=y;}
-  else{me.x=560+Math.random()*230;me.y=415+Math.random()*40;}
+  else{me.r='town';me.x=560+Math.random()*230;me.y=415+Math.random()*40;}
+  // 席に着いたまま開き直したときは、5分以内なら勉強時間を引き継ぐ
+  if(me.r==='lib'&&typeof s.ss==='number'&&s.ss>0&&s.ss<=Date.now()&&Date.now()-(s.at||0)<300000)me.ss=s.ss;
   if(STATUS_MAP[s.st])me.st=me.manual=s.st;
   me.c=colorIdx(s.c,Math.floor(Math.random()*COLORS.length));
   buildUI();resize();requestAnimationFrame(frame);connect();
@@ -274,8 +315,11 @@ function syncPeers(){
     if(typeof m.t==='string'){if(who[m.t])continue;who[m.t]=1;}
     seen[k]=1;
     var o=others[k];
-    if(!o)o=others[k]={x:x,y:y,tx:null,ty:null,phase:0,moving:false,dir:1,fd:0,side:1};
+    var room=m.r==='lib'?'lib':'town';
+    if(!o)o=others[k]={r:room,x:x,y:y,tx:null,ty:null,phase:0,moving:false,dir:1,fd:0,side:1};
+    else if(o.r!==room){o.r=room;o.x=x;o.y=y;o.tx=null;o.moving=false;}
     else if(o.tx===null&&Math.hypot(o.x-x,o.y-y)>40){o.tx=x;o.ty=y;o.direct=true;}
+    o.ss=(typeof m.ss==='number'&&m.ss>Date.now()-86400000&&m.ss<=Date.now()+5000)?m.ss:0;
     o.st=STATUS_MAP[m.st]?m.st:'zone';
     o.c=colorIdx(m.c,5);
     o.t=typeof m.t==='string'?m.t:null;
@@ -289,18 +333,20 @@ function onMove(p){
   var o=others[p.k];if(!o)return;
   var x=num(p.x,0,W),y=num(p.y,0,H),tx=num(p.tx,0,W),ty=num(p.ty,0,H);
   if(x===null||y===null||tx===null||ty===null)return;
+  var room=p.r==='lib'?'lib':'town';
+  if(o.r!==room){o.r=room;o.x=x;o.y=y;}
   if(Math.hypot(o.x-x,o.y-y)>90){o.x=x;o.y=y;}
   o.tx=tx;o.ty=ty;o.direct=!!p.d;o.stuck=0;
 }
 function sendMove(tx,ty,direct){
   if(!online||!ch)return;
-  ch.send({type:'broadcast',event:'mv',payload:{k:myKey,x:Math.round(me.x),y:Math.round(me.y),
+  ch.send({type:'broadcast',event:'mv',payload:{k:myKey,r:me.r,x:Math.round(me.x),y:Math.round(me.y),
     tx:Math.round(tx),ty:Math.round(ty),d:direct?1:0}});
 }
 function track(now){
   if(!online||!ch||!trackDirty||now-lastTrack<1000)return;
   lastTrack=now;trackDirty=false;
-  ch.track({x:Math.round(me.x),y:Math.round(me.y),st:me.st,c:me.c,t:traceId,it:hasItem(me)?me.it:null,iu:hasItem(me)?me.iu:0});
+  ch.track({r:me.r,ss:me.ss||0,x:Math.round(me.x),y:Math.round(me.y),st:me.st,c:me.c,t:traceId,it:hasItem(me)?me.it:null,iu:hasItem(me)?me.iu:0});
 }
 function checkIn(){
   sb.rpc('check_in',{v:visitorId}).then(function(r){
@@ -319,13 +365,16 @@ function loadTraces(){
     tracesAt=Date.now();
   },function(){});
 }
+function tracePos(){return me.r==='lib'?{x:LIB.out.x,y:LIB.out.y}:{x:me.x,y:me.y};}
 function saveTrace(){
   if(!sb)return;
-  lastTrace={x:me.x,y:me.y,st:me.st,c:me.c};traceAt=Date.now();
-  sb.rpc('leave_trace',{tid:traceId,px:Math.round(me.x),py:Math.round(me.y),pst:me.st,pc:me.c}).then(function(){},function(){});
+  var tp=tracePos();
+  lastTrace={x:tp.x,y:tp.y,st:me.st,c:me.c};traceAt=Date.now();
+  sb.rpc('leave_trace',{tid:traceId,px:Math.round(tp.x),py:Math.round(tp.y),pst:me.st,pc:me.c}).then(function(){},function(){});
 }
 function traceStale(){
-  return !lastTrace||Math.hypot(lastTrace.x-me.x,lastTrace.y-me.y)>10||lastTrace.st!==me.st||lastTrace.c!==me.c;
+  var tp=tracePos();
+  return !lastTrace||Math.hypot(lastTrace.x-tp.x,lastTrace.y-tp.y)>10||lastTrace.st!==me.st||lastTrace.c!==me.c;
 }
 // 15秒とどまった場所を「いた場所」として残す。いる間は5分ごとに時刻だけ更新する。
 function stepTrace(dt){
@@ -350,8 +399,11 @@ function resize(){
 if(window.ResizeObserver)new ResizeObserver(resize).observe(stage);else window.addEventListener('resize',resize);
 cv.addEventListener('pointerdown',function(e){
   var r=cv.getBoundingClientRect();
-  me.tx=Math.min(W-16,Math.max(16,(e.clientX-r.left)/scale+camX));
-  me.ty=Math.min(H-8,Math.max(26,(e.clientY-r.top)/scale+camY));
+  var RW=me.r==='lib'?LIB.w:W,RH=me.r==='lib'?LIB.h:H,lb=BUILDINGS[0];
+  me.tx=Math.min(RW-16,Math.max(16,(e.clientX-r.left)/scale+camX));
+  me.ty=Math.min(RH-2,Math.max(26,(e.clientY-r.top)/scale+camY));
+  // 図書館の建物をタップしたら入口へ向かう
+  if(me.r==='town'&&me.tx>lb.x&&me.tx<lb.x+lb.w&&me.ty>lb.y&&me.ty<lb.y+lb.h+8){me.tx=LIB.door.x;me.ty=LIB.door.y-6;}
   me.stuck=0;sendMove(me.tx,me.ty,false);cv.focus({preventScroll:true});
 });
 var KEYMAP={ArrowUp:'u',ArrowDown:'d',ArrowLeft:'l',ArrowRight:'r',w:'u',s:'d',a:'l',d:'r',W:'u',S:'d',A:'l',D:'r'};
@@ -368,7 +420,7 @@ function walk(p,vx,vy,dt,free){
   var d=Math.hypot(p.x-ox,p.y-oy);
   if(Math.abs(vx)>0.2)p.dir=vx>0?1:-1;
   p.phase+=dt*9;p.fd+=d;
-  if(p.fd>20){p.fd=0;p.side=-p.side;var fz=zoneAt(p.x,p.y);if(!fz||fz.st!=='bath')foot.push({x:p.x+p.side*3,y:p.y,t:Date.now()});if(foot.length>700)foot.shift();}
+  if(p.fd>20){p.fd=0;p.side=-p.side;var fz=zoneAt(p.x,p.y);if(here(p)&&(!fz||fz.st!=='bath'))foot.push({x:p.x+p.side*3,y:p.y,t:Date.now()});if(foot.length>700)foot.shift();}
   return d;
 }
 function toward(p,dt,free){
@@ -385,11 +437,39 @@ function stepMe(dt,now){
     if(now-lastKeyMv>250){lastKeyMv=now;sendMove(me.x,me.y,true);}
   }else if(me.tx!==null){me.moving=toward(me,dt,false);}
   else me.moving=false;
-  if(was&&!me.moving){sendMove(me.x,me.y,true);trackDirty=true;saveLocal();}
+  if(was&&!me.moving){
+    var q=me.r==='lib'?freeSeatNear():null;
+    if(q){me.tx=q.x;me.ty=q.y;me.moving=true;sendMove(q.x,q.y,true);} // 席の近くで止まったら席に着く
+    else{sendMove(me.x,me.y,true);trackDirty=true;saveLocal();}
+  }
+  stepDoors();
+  var seated=!!seatOf(me);
+  if(seated&&!me.ss){me.ss=Date.now();trackDirty=true;saveLocal();}
+  else if(!seated&&me.ss&&me.moving){me.ss=0;trackDirty=true;}
   stepZone();stepCartGift();
+}
+function freeSeatNear(){
+  var best=null,bd=38;
+  LIB_SEATS.forEach(function(q){
+    var d=Math.hypot(me.x-q.x,me.y-q.y);if(d>=bd||d<3)return;
+    for(var k in others){var o=others[k];if(roomOf(o)==='lib'&&Math.hypot(o.x-q.x,o.y-q.y)<8)return;}
+    bd=d;best=q;
+  });
+  return best;
+}
+function moveRoom(room,x,y){
+  me.r=room;me.x=x;me.y=y;me.tx=null;me.moving=false;me.ss=0;me.stuck=0;keys={};foot=[];
+  trackDirty=true;lastTrack=0;sendMove(x,y,true);saveLocal();
+}
+// 図書館の入口と出口
+function stepDoors(){
+  if(me.r==='town'){
+    if(Math.abs(me.x-LIB.door.x)<24&&me.y<LIB.door.y+9&&me.y>LIB.door.y-16&&(!me.moving||keys.u))moveRoom('lib',LIB.inn.x,LIB.inn.y);
+  }else if(me.y>591)moveRoom('town',LIB.out.x,LIB.out.y);
 }
 function stepOther(o,dt){
   if(o.tx===null){o.moving=false;return;}
+  if(!here(o)){o.x=o.tx;o.y=o.ty;o.tx=null;o.moving=false;return;}
   if(Math.hypot(o.tx-o.x,o.ty-o.y)>500){o.x=o.tx;o.y=o.ty;o.tx=null;o.moving=false;return;}
   o.moving=toward(o,dt,o.direct);
 }
@@ -622,7 +702,8 @@ function updateBell(){
     el.classList.add('on');
   }else{
     var tn=townTime();
-    if(wx.hanabi){el.textContent='花火があがっています。公園の池の上です';el.classList.add('on');}
+    if(me.r==='lib'){var pm=pomodoro();el.textContent='図書館・'+pm.text;el.classList.toggle('on',pm.focus);}
+    else if(wx.hanabi){el.textContent='花火があがっています。公園の池の上です';el.classList.add('on');}
     else{
       el.textContent=wx.cart?(wx.cart.warm?'焼き芋屋':'かき氷屋')+(wx.cart.stopped?'が交差点に止まっています(あと'+wx.cart.left+'分)。近くに立つともらえます':'が大通りを通っています'):
         'つぎの鐘は '+hhmm(bell.next.h*60+bell.next.m)+' '+bell.next.name+((tn.dow===6||tn.dow===0)&&tn.h<20?'・今夜20:00 花火':'');
@@ -654,6 +735,7 @@ function drawBuilding(b){
   ctx.fillStyle='#6b4a36';ctx.fillRect(dx,b.y+b.h-40,dw,40);
   ctx.fillStyle='#f3e7a8';ctx.fillRect(dx+17,b.y+b.h-22,4,4);
   winRects(b).forEach(function(w){ctx.fillStyle='#bcd9e6';ctx.fillRect(w[0],w[1],w[2],w[3]);ctx.fillStyle='rgba(255,255,255,.5)';ctx.fillRect(w[0],w[1],w[2],4);});
+  if(b.label==='図書館'){ctx.fillStyle='#7a8a6a';rr(b.x+b.w/2-20,b.y+b.h-1,40,11,3);ctx.fill();}
   if(b.label){
     ctx.font='15px DotGothic16, sans-serif';var tw=ctx.measureText(b.label).width+18;
     ctx.fillStyle='#fbf6e6';rr(b.x+b.w/2-tw/2,wy-8,tw,24,3);ctx.fill();
@@ -688,11 +770,11 @@ function drawPerson(p,isMe,still){
     return;
   }
   drawBody(p,isMe,still,kind==='bath');
-  if(wx.rain>0.3)drawUmbrella(p);
+  if(wx.rain>0.3&&me.r==='town')drawUmbrella(p);
 }
 function drawBody(p,isMe,still,bath){
   var fz=zoneAt(p.x,p.y);
-  var sit=!bath&&!p.moving&&(onBench(p)||nearPet(p,PETS.cat)||nearPet(p,PETS.dog)||!!(fz&&fz.fire));
+  var sit=!bath&&!p.moving&&(!!seatOf(p)||onBench(p)||nearPet(p,PETS.cat)||nearPet(p,PETS.dog)||!!(fz&&fz.fire));
   var x=p.x,y=p.y+(bath?9:0)+(sit?6:0),sw=p.moving?Math.sin(p.phase):0,bob=(!p.moving&&!still)?Math.sin(p.phase*0.25)*0.6:0;
   var gy=y-(sit?6:0);
   if(!bath){ctx.fillStyle='rgba(20,40,20,.25)';ctx.beginPath();ctx.ellipse(x,gy,11,4,0,0,7);ctx.fill();}
@@ -739,8 +821,8 @@ function stepCars(dt){
     var c=cars[k],stop=false,ahead;
     function blocks(px,py){ahead=(px-c.x)*c.dir;return Math.abs(py-c.y)<17&&ahead>14&&ahead<78;}
     if(c.wait<12){
-      if(blocks(me.x,me.y))stop=true;
-      for(var o in others)if(blocks(others[o].x,others[o].y))stop=true;
+      if(me.r==='town'&&blocks(me.x,me.y))stop=true;
+      for(var o in others)if(roomOf(others[o])==='town'&&blocks(others[o].x,others[o].y))stop=true;
     }
     for(var j in cars)if(j!==k&&cars[j].dir===c.dir&&(cars[j].x-c.x)*c.dir>0&&(cars[j].x-c.x)*c.dir<70)stop=true;
     if(wx.cart&&c.dir>0&&(wx.cart.x-c.x)>0&&(wx.cart.x-c.x)<110)stop=true;
@@ -759,6 +841,86 @@ function drawCar(c){
   ctx.fillStyle='#bcd9e6';ctx.fillRect(x-9-2*d,y-24,9,7);ctx.fillRect(x+2-2*d,y-24,9,7);
   ctx.fillStyle='#fff3b0';ctx.fillRect(x+(d>0?22:-25),y-15,3,4);
   ctx.fillStyle='#d9534f';ctx.fillRect(x+(d>0?-25:22),y-15,3,4);
+}
+function drawLibrary(t,vw,vh){
+  var i,j,pm=pomodoro(),k;
+  ctx.fillStyle='#e9dfcc';ctx.fillRect(20,20,860,110);
+  ctx.fillStyle='#c8a57a';ctx.fillRect(20,128,860,472);
+  ctx.fillStyle='rgba(90,60,30,.14)';for(i=160;i<600;i+=32)ctx.fillRect(20,i,860,1.5);
+  ctx.fillStyle='#8a6a48';ctx.fillRect(20,122,860,8);
+  // 窓。外の明るさと雨が見える
+  [50,760].forEach(function(wxp){
+    ctx.fillStyle='#6b4a36';ctx.fillRect(wxp-4,36,98,72);
+    var g=ctx.createLinearGradient(0,40,0,104),d=light.dark,w=light.warm;
+    g.addColorStop(0,d>0.6?'#1d2748':w>0.3?'#f2b27a':'#a9d8ee');g.addColorStop(1,d>0.6?'#2c3a66':w>0.3?'#f6d7a6':'#d6eef7');
+    ctx.fillStyle=g;ctx.fillRect(wxp,40,90,64);
+    if(wx.rain>0){ctx.strokeStyle='rgba(220,235,255,.7)';ctx.lineWidth=1;ctx.beginPath();
+      for(j=0;j<14;j++){var rx=wxp+((j*37+t*0.05)%90),ry=40+((j*23+t*0.2)%56);ctx.moveTo(rx,ry);ctx.lineTo(rx-2,ry+8);}ctx.stroke();}
+    ctx.fillStyle='#6b4a36';ctx.fillRect(wxp+43,40,4,64);ctx.fillRect(wxp,70,90,3);
+  });
+  // 本棚
+  var spine=['#a8453f','#3f6b55','#4f6f8a','#d6a531','#7a4b3a','#b0589c','#e6dccb','#5b5f7a'];
+  [[160,240],[500,240]].forEach(function(sh,si){
+    ctx.fillStyle='#6b4a36';ctx.fillRect(sh[0],30,sh[1],94);
+    for(j=0;j<3;j++){ctx.fillStyle='#4a3324';ctx.fillRect(sh[0]+5,35+j*29,sh[1]-10,25);
+      var bx=sh[0]+7;for(i=0;bx<sh[0]+sh[1]-12;i++){var hv=h32(si*1000+j*100+i),bw=5+hv%5,bh=17+(hv>>>4)%7;
+        ctx.fillStyle=spine[(hv>>>8)%spine.length];ctx.fillRect(bx,35+j*29+(25-bh),bw,bh);bx+=bw+1;}}
+  });
+  // ポモドーロの掲示
+  ctx.fillStyle='#3b2d22';rr(405,34,90,74,6);ctx.fill();
+  ctx.fillStyle=pm.focus?'#2c7a68':'#d6a531';rr(409,38,82,66,4);ctx.fill();
+  ctx.fillStyle='#ffffff';ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.font='17px DotGothic16, sans-serif';ctx.fillText(pm.focus?'集中':'休憩',450,56);
+  ctx.font='15px DotGothic16, sans-serif';ctx.fillText(Math.floor(pm.left/60)+':'+String(pm.left%60).padStart(2,'0'),450,78);
+  ctx.fillStyle='rgba(255,255,255,.35)';ctx.fillRect(417,92,66,5);ctx.fillStyle='#ffffff';ctx.fillRect(417,92,66*pm.frac,5);
+  // 読書コーナー
+  ctx.fillStyle='#b56b5b';rr(660,384,196,190,10);ctx.fill();
+  ctx.strokeStyle='#e9c9a8';ctx.lineWidth=2;rr(668,392,180,174,7);ctx.stroke();
+  ctx.fillStyle='#7a5a3c';ctx.fillRect(738,468,26,26);ctx.fillStyle='#a8453f';ctx.fillRect(743,473,16,10);
+  ctx.fillStyle='#8a5a44';ctx.fillRect(834,548,18,22);ctx.fillStyle='#4f8a4c';ctx.beginPath();ctx.arc(843,538,15,0,7);ctx.fill();
+  // 出口
+  ctx.fillStyle='#7a8a6a';rr(410,576,80,24,4);ctx.fill();
+  ctx.fillStyle='#f4efe2';ctx.font='12px DotGothic16, sans-serif';ctx.fillText('出口',450,589);
+  drawFootprints();
+
+  var items=[];
+  LIB_DESKS.forEach(function(d){items.push([d.y+7,1,d]);});
+  LIB_SEATS.forEach(function(q){if(q.chair)items.push([q.y-2,2,q]);});
+  for(k in others)if(here(others[k]))items.push([others[k].y,4,others[k]]);
+  items.push([me.y,5,me]);
+  items.sort(function(a,b){return a[0]-b[0]||a[1]-b[1];});
+  items.forEach(function(it){var o=it[2];
+    if(it[1]===1){
+      ctx.fillStyle='rgba(60,40,20,.18)';ctx.fillRect(o.x+3,o.y+o.h+8,o.w,5);
+      ctx.fillStyle='#7a5a3c';ctx.fillRect(o.x,o.y+o.h-10,o.w,20);
+      ctx.fillStyle='#a07c56';ctx.fillRect(o.x,o.y,o.w,o.h-8);
+      ctx.fillStyle='#39424d';ctx.fillRect(o.x+o.w/2-2,o.y-12,4,14);ctx.fillStyle='#f5e7a6';ctx.beginPath();ctx.arc(o.x+o.w/2,o.y-13,6,Math.PI,0);ctx.fill();
+      // 誰かが座っている席には、開いたノートを置く
+      [32,88].forEach(function(sx){
+        var used=(me.r==='lib'&&!me.moving&&Math.abs(me.x-(o.x+sx))<5&&Math.abs(me.y-(o.y+6))<5);
+        for(var kk in others){var p=others[kk];if(roomOf(p)==='lib'&&!p.moving&&Math.abs(p.x-(o.x+sx))<5&&Math.abs(p.y-(o.y+6))<5)used=true;}
+        if(used){ctx.fillStyle='#f4efe2';ctx.fillRect(o.x+sx-11,o.y+7,10,11);ctx.fillRect(o.x+sx+1,o.y+7,10,11);
+          ctx.fillStyle='rgba(60,60,80,.35)';for(var l=0;l<3;l++){ctx.fillRect(o.x+sx-9,o.y+10+l*3,6,1);ctx.fillRect(o.x+sx+3,o.y+10+l*3,6,1);}}
+      });
+    }else if(it[1]===2){
+      ctx.fillStyle='rgba(60,40,20,.18)';ctx.beginPath();ctx.ellipse(o.x,o.y+3,19,6,0,0,7);ctx.fill();
+      ctx.fillStyle='#4f6f8a';rr(o.x-17,o.y-30,34,32,7);ctx.fill();
+      ctx.fillStyle='#6488a6';rr(o.x-17,o.y-10,34,13,5);ctx.fill();
+    }else drawPerson(o,it[1]===5,reduce);
+  });
+  var signs=[drawSign(LIB_ZONES[0],false)];
+  var labels=[{p:me,text:'あなた・'+statusText(me),fill:'#fff7c2',alpha:1}];
+  Object.keys(others).sort().forEach(function(key){if(here(others[key]))labels.push({p:others[key],text:statusText(others[key]),fill:'#ffffff',alpha:1});});
+  placeLabels(labels,signs);
+}
+// 町から見た図書館の入口。中にいる人数を出す
+function drawDoorSign(){
+  var n=libCount(),text=n?'入口・中に'+n+'人':'入口・中に入れます',x=LIB.door.x,y=LIB.door.y-66;
+  ctx.font='13px DotGothic16, sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+  var tw=ctx.measureText(text).width+16;
+  ctx.fillStyle=n?'#ffe07a':'#fbf6e6';rr(x-tw/2,y-11,tw,22,3);ctx.fill();ctx.strokeStyle='#5b4634';ctx.lineWidth=1.5;ctx.stroke();
+  ctx.fillStyle='#3b2d22';ctx.fillText(text,x,y+1);
+  return {x:x,y:y,w:tw};
 }
 function drawFire(t){
   var x=FIRE.x,y=FIRE.y,i;
@@ -902,11 +1064,12 @@ function frame(t){
   bellT-=dt;if(bellT<=0){bellT=1;updateBell();}
   clockT-=dt;if(clockT<=0){clockT=20;light=daylight();$('clock').textContent=light.text;}
 
-  var vw=cw/scale,vh=chh/scale;
-  camX=vw>=W?(W-vw)/2:Math.min(W-vw,Math.max(0,me.x-vw/2));
-  camY=vh>=H?(H-vh)/2:Math.min(H-vh,Math.max(0,me.y-30-vh/2));
-  ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#7fa866';ctx.fillRect(0,0,cv.width,cv.height);
+  var vw=cw/scale,vh=chh/scale,inLib=me.r==='lib',RW=inLib?LIB.w:W,RH=inLib?LIB.h:H;
+  camX=vw>=RW?(RW-vw)/2:Math.min(RW-vw,Math.max(0,me.x-vw/2));
+  camY=vh>=RH?(RH-vh)/2:Math.min(RH-vh,Math.max(0,me.y-30-vh/2));
+  ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle=inLib?'#3a2f2a':'#7fa866';ctx.fillRect(0,0,cv.width,cv.height);
   ctx.setTransform(scale*dpr,0,0,scale*dpr,-camX*scale*dpr,-camY*scale*dpr);
+  if(inLib){drawLibrary(t,vw,vh);requestAnimationFrame(frame);return;}
   drawGround();drawZones(t);
   if(bell.bell&&!reduce){var bz=bell.zone;ctx.strokeStyle='rgba(255,210,74,'+(0.55+0.35*Math.sin(t/350))+')';ctx.lineWidth=4;rr(bz.x-3,bz.y-3,bz.w+6,bz.h+6,10);ctx.stroke();}
   drawFootprints();
@@ -919,7 +1082,7 @@ function frame(t){
   if(wx.cart)items.push([455,9,wx.cart]);
   for(k in cars)items.push([cars[k].y,12,cars[k]]);
   ghosts.forEach(function(g){items.push([g.y,7,g]);});
-  for(k in others)items.push([others[k].y,4,others[k]]);
+  for(k in others)if(here(others[k]))items.push([others[k].y,4,others[k]]);
   items.push([me.y,5,me]);items.push([PETS.cat.y,6,PETS.cat]);items.push([PETS.dog.y,10,PETS.dog]);items.push([FIRE.y,11,FIRE]);
   items.sort(function(a,b){return a[0]-b[0];});
   items.forEach(function(it){var o=it[2];
@@ -956,8 +1119,9 @@ function frame(t){
     ctx.strokeStyle='rgba(255,224,122,'+(0.7*(1-rad/120))+')';ctx.lineWidth=2;ctx.beginPath();ctx.arc(TOWER.x,TOWER.y-40,rad,0,7);ctx.stroke();}}
   drawSky(t,vw,vh);drawStars(vw,vh);drawHanabi();
   var signs=ZONES.map(function(z){return drawSign(z,!!bell.bell&&bell.zone===z);});
+  signs.push(drawDoorSign());
   var labels=[{p:me,text:'あなた・'+statusText(me),fill:'#fff7c2',alpha:1}];
-  Object.keys(others).sort().forEach(function(key){labels.push({p:others[key],text:statusText(others[key]),fill:'#ffffff',alpha:1});});
+  Object.keys(others).sort().forEach(function(key){if(here(others[key]))labels.push({p:others[key],text:statusText(others[key]),fill:'#ffffff',alpha:1});});
   ghosts.forEach(function(g){labels.push({p:g,text:STATUS_MAP[g.st]+'・'+ageText(g.now),fill:'#ffffff',alpha:Math.min(0.75,g.alpha+0.2)});});
   placeLabels(labels,signs);
   if(bell.bell)drawPointer(bell.zone,vw,vh);
@@ -968,6 +1132,7 @@ function frame(t){
 window.onstaylyTown={env:function(){
   var b=zoneBySt('bath');
   function near(px,py){var d=Math.hypot(me.x-px,me.y-py),f=Math.max(0,Math.min(1,1-(d-70)/320));return f*f;}
+  if(me.r==='lib')return {car:0,anyCar:0,rain:(wx.snow?0:wx.rain)*0.35,night:0,bath:0,pond:0,fire:0};
   var car=0,any=0,ck;for(ck in cars){any=1;car=Math.max(car,near(cars[ck].x,cars[ck].y)*(0.35+0.65*cars[ck].v/CAR_SPEED));}
   return {car:car,anyCar:any,rain:wx.snow?0:wx.rain,night:wx.rain>0?0:light.dark,bath:near(b.x+b.w/2,b.y+b.h/2),pond:near(POND.x,POND.y),fire:near(FIRE.x,FIRE.y)};
 }};
