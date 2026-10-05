@@ -230,6 +230,11 @@ function buildUI(){
     b.addEventListener('click',function(){me.c=i;changed();});
     $('swatches').appendChild(b);
   });
+  // はじめての人にだけ案内を出す。「あそびかた」でいつでも開ける。
+  var guide=$('guide');
+  if(!lsGet('irudake-seen'))guide.hidden=false;
+  $('guide-close').addEventListener('click',function(){guide.hidden=true;lsSet('irudake-seen','1');});
+  $('guide-open').addEventListener('click',function(){guide.hidden=false;$('guide-close').focus();});
   $('g-wave').addEventListener('click',function(){doGesture('wave');});
   $('g-bow').addEventListener('click',function(){doGesture('bow');});
   syncUI();
