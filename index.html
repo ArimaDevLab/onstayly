@@ -129,10 +129,11 @@ canvas:focus-visible{box-shadow:inset 0 0 0 3px var(--accent)}
     <p class="sound-note" id="snd-note"></p>
   </div>
   <button type="button" class="chip play" id="play-btn" hidden></button>
+  <button type="button" class="chip play" id="stack-btn" hidden></button>
   <div class="game" id="game" hidden>
     <div class="game-card" role="dialog" aria-labelledby="game-title">
       <div class="game-head"><h2 id="game-title">ボウリング</h2><span id="game-info"></span></div>
-      <canvas id="game-cv" width="300" height="400" tabindex="0" aria-label="ボウリングのレーン。タップで位置と向きを決めて投げます。"></canvas>
+      <canvas id="game-cv" width="300" height="400" tabindex="0" aria-label="ゲームの画面。タップで操作します。"></canvas>
       <p class="game-msg" id="game-msg"></p>
       <div class="game-btns">
         <button type="button" class="chip" id="game-again" hidden>もう一回</button>
@@ -149,7 +150,8 @@ canvas:focus-visible{box-shadow:inset 0 0 0 3px var(--accent)}
         <li><b>図書館でいっしょに勉強。</b>建物をタップすると中に入れます。席に着くと勉強時間が出て、画面はついたままになります。</li>
         <li><b>ほかのアプリに切りかえると「席をはずしています」と出ます。</b>勉強時間はその間止まります。15秒以内にもどれば大丈夫です。</li>
         <li><b>つかれたら町で気分転換。</b>公園の猫、焚き火、露天風呂、屋台があります。</li>
-        <li><b>休憩の5分だけ、ゲームコーナーでボウリングができます。</b>たおしたピンは、町のみんなの合計に足されます。</li>
+        <li><b>勉強した分だけ、町の塔がのびます。</b>図書館の席で1分勉強すると、レンガが1個ふえます。</li>
+        <li><b>休憩の5分だけ遊べます。</b>ゲームコーナーでボウリング、塔のふもとで積み木ができます。</li>
         <li><b>エプロンや帽子の人は町の住人です。</b>本物の人ではなく、「いま○人」には入りません。</li>
       </ul>
       <p class="guide-note">保存するのは「いた場所」と「していたこと」だけです。名前や連絡先は集めません。</p>
@@ -181,5 +183,6 @@ canvas:focus-visible{box-shadow:inset 0 0 0 3px var(--accent)}
 <script src="app.js"></script>
 <script src="sound.js"></script>
 <script src="bowling.js"></script>
+<script src="stack.js"></script>
 </body>
 </html>

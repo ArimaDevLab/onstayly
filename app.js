@@ -79,7 +79,7 @@ function pomodoro(){
 function libCount(){var n=me.r==='lib'?1:0;for(var k in others)if(roomOf(others[k])==='lib')n++;return n;}
 var SLEEP_TTL=8*3600; // 「おやすみ中」の痕跡は朝まで残す
 var POND={x:1080,y:790,rx:120,ry:62};
-var TREES=[[50,130],[420,290],[610,150],[750,130],[1345,150],[1355,345],[590,350],[40,345],[600,640],[30,810],
+var TREES=[[50,130],[420,290],[610,150],[1345,150],[1355,345],[590,350],[40,345],[600,640],[30,810],
   [360,820],[600,900],[840,640],[900,940],[1378,960],[780,770],[1220,940],[980,650],[740,560],[1370,640]];
 var BENCHES=[[900,760],[1240,780],[1060,900]];
 var LAMPS=[]; (function(){var i;for(i=110;i<W;i+=215)LAMPS.push([i,392]);for(i=110;i<H;i+=215){if(Math.abs(i-435)>60)LAMPS.push([630,i]);}})();
@@ -186,7 +186,7 @@ function drawItem(p,x,y){
 }
 // 頭の上に出す言葉。動物のそばに座っている間はそちらを出す(保存はしない)。
 function statusText(p){
-  if(p.pl)return 'ボウリング中';
+  if(p.pl)return p.pl===2?'つみき中':'ボウリング中';
   if(nearPet(p,PETS.cat))return 'ねこといっしょ';
   if(nearPet(p,PETS.dog))return 'いぬといっしょ';
   if(hasItem(p))return ITEMS[p.it];
@@ -207,6 +207,7 @@ function blocked(x,y){
   for(var i=0;i<BUILDINGS.length;i++){var b=BUILDINGS[i];
     if(x>b.x-8&&x<b.x+b.w+8&&y>b.y+b.h*0.35&&y<b.y+b.h+6)return true;}
   if(Math.abs(x-FIRE.x)<20&&Math.abs(y-FIRE.y)<12)return true;
+  if(Math.abs(x-TWR.x)<34&&y>TWR.y-22&&y<TWR.y+6)return true;
   var dx=(x-POND.x)/(POND.rx+8),dy=(y-POND.y)/(POND.ry+8);
   return dx*dx+dy*dy<1;
 }
@@ -301,6 +302,7 @@ function connect(){
   checkIn();loadTraces();
   setInterval(loadTraces,60000);setInterval(checkIn,300000);
   loadPins();setInterval(loadPins,60000);
+  loadTower();setInterval(loadTower,60000);
 }
 // 町の回線に入る。切れたら5秒後に入り直す。
 var rejoinT=null;
@@ -363,7 +365,7 @@ function syncPeers(){
     if(!o)o=others[k]={r:room,x:x,y:y,tx:null,ty:null,phase:0,moving:false,dir:1,fd:0,side:1};
     else if(o.r!==room){o.r=room;o.x=x;o.y=y;o.tx=null;o.moving=false;}
     else if(o.tx===null&&Math.hypot(o.x-x,o.y-y)>40){o.tx=x;o.ty=y;o.direct=true;}
-    o.pl=m.pl===1?1:0;
+    o.pl=(m.pl===1||m.pl===2)?m.pl:0;
     o.aw=(typeof m.aw==='number'&&m.aw>Date.now()-86400000&&m.aw<=Date.now()+5000)?m.aw:0;
     o.ss=(typeof m.ss==='number'&&m.ss>Date.now()-86400000&&m.ss<=Date.now()+5000)?m.ss:0;
     o.st=STATUS_MAP[m.st]?m.st:'zone';
@@ -390,6 +392,104 @@ function sendMove(tx,ty,direct){
     tx:Math.round(tx),ty:Math.round(ty),d:direct?1:0}});
 }
 // 町のみんなで今日たおしたピンの合計(ボウリング)。データベースが未設定のときは出さない。
+/* みんなの塔。図書館で勉強した1分がレンガ1個になり、町の塔が伸びる。
+   5段で1本が完成し、完成したら次の塔を建て始める。 */
+var TWR={x:755,y:242};
+var TIERS=[{need:100,h:60},{need:300,h:55},{need:600,h:50},{need:1000,h:42},{need:1500,h:28}];
+var TOWER_FULL=TIERS.reduce(function(a,t){return a+t.need;},0);
+var tower={total:null,today:0},partyUntil=0,studyAcc=0,floats=[];
+function towerStage(total){
+  var n=Math.floor(total/TOWER_FULL),left=total%TOWER_FULL,h=0;
+  for(var i=0;i<TIERS.length;i++){
+    if(left<TIERS[i].need)return {n:n,tier:i,height:h+TIERS[i].h*left/TIERS[i].need,toNext:TIERS[i].need-left};
+    left-=TIERS[i].need;h+=TIERS[i].h;
+  }
+  return {n:n,tier:0,height:0,toNext:TIERS[0].need};
+}
+function setTower(row){
+  if(!row||typeof row.bricks_total!=='number')return;
+  var before=tower.total===null?null:towerStage(tower.total),after=towerStage(row.bricks_total);
+  // 段か塔が完成した瞬間は、塔の上に花火を上げる
+  if(before&&(after.n>before.n||after.tier>before.tier))partyUntil=Date.now()+25000;
+  tower.total=row.bricks_total;tower.today=typeof row.bricks_today==='number'?row.bricks_today:0;
+}
+function loadTower(){
+  if(!sb)return;
+  sb.rpc('tower_state').then(function(r){if(!r.error&&Array.isArray(r.data))setTower(r.data[0]);},function(){});
+}
+function addBricks(n){
+  n=Math.max(1,Math.min(30,Math.floor(n)));
+  if(!sb)return Promise.resolve(null);
+  return sb.rpc('add_bricks',{n:n}).then(function(r){
+    if(r.error||!Array.isArray(r.data)||!r.data[0])return null;
+    setTower(r.data[0]);return tower.total;
+  },function(){return null;});
+}
+// 席に着いて画面を見ている時間を数え、5分ごとにレンガ5個を塔へ送る
+function stepStudyBricks(dt,seated){
+  var rate=FORCE==='tower'?60:1;
+  if(seated&&!me.aw){
+    studyAcc+=dt*rate;
+    if(studyAcc>=300){studyAcc-=300;giveBricks(5);}
+  }else if(!seated){
+    if(studyAcc>=60)giveBricks(Math.floor(studyAcc/60));
+    studyAcc=0;
+  }
+}
+function giveBricks(n){
+  floats.push({x:me.x,y:me.y-74,text:'レンガ +'+n,t:performance.now(),r:me.r});
+  addBricks(n);
+}
+function drawFloats(){
+  var now=performance.now();
+  floats=floats.filter(function(f){return now-f.t<2600;});
+  ctx.font='14px DotGothic16, sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+  floats.forEach(function(f){
+    if(f.r!==me.r)return;
+    var k=(now-f.t)/2600;ctx.globalAlpha=1-k*k;
+    ctx.strokeStyle='#ffffff';ctx.lineWidth=3;ctx.strokeText(f.text,f.x,f.y-k*26);
+    ctx.fillStyle='#8a4a2f';ctx.fillText(f.text,f.x,f.y-k*26);
+  });
+  ctx.globalAlpha=1;
+}
+function towerHalf(h){return 3+38*Math.pow(1-h/235,1.7);} // 高さ h での塔の半分の幅
+function drawTownTower(){
+  var x=TWR.x,y=TWR.y,st=tower.total===null?{n:0,tier:0,height:0}:towerStage(tower.total),H=st.height,i,h;
+  ctx.fillStyle='rgba(30,50,30,.2)';ctx.beginPath();ctx.ellipse(x,y,46,9,0,0,7);ctx.fill();
+  ctx.fillStyle='#8f8a80';ctx.fillRect(x-44,y-5,88,7);
+  if(H>0){
+    ctx.strokeStyle='#8a4a2f';ctx.lineWidth=2.4;ctx.beginPath();
+    for(i=0;i<=H;i+=3){h=Math.min(i,H);ctx.lineTo(x-towerHalf(h),y-5-h);}
+    ctx.stroke();ctx.beginPath();
+    for(i=0;i<=H;i+=3){h=Math.min(i,H);ctx.lineTo(x+towerHalf(h),y-5-h);}
+    ctx.stroke();
+    ctx.lineWidth=1.1;ctx.beginPath();
+    for(h=0;h+11<=H;h+=11){var a=towerHalf(h),b=towerHalf(h+11);
+      ctx.moveTo(x-a,y-5-h);ctx.lineTo(x+b,y-5-h-11);ctx.moveTo(x+a,y-5-h);ctx.lineTo(x-b,y-5-h-11);
+      ctx.moveTo(x-b,y-5-h-11);ctx.lineTo(x+b,y-5-h-11);}
+    ctx.stroke();
+    // 段のさかいに展望台
+    var acc=0;ctx.fillStyle='#6b3a26';
+    for(i=0;i<TIERS.length-1;i++){acc+=TIERS[i].h;if(acc<=H){var w=towerHalf(acc)+5;ctx.fillRect(x-w,y-5-acc-2,w*2,4);}}
+    // 建てている途中の足場
+    ctx.strokeStyle='rgba(90,70,50,.6)';ctx.lineWidth=1;ctx.setLineDash([3,3]);
+    var tw=towerHalf(H)+6;ctx.strokeRect(x-tw,y-5-H-9,tw*2,9);ctx.setLineDash([]);
+  }
+  // 完成した塔の数だけ、ふもとに旗を立てる
+  for(i=0;i<Math.min(st.n,8);i++){var fx=x-40+i*11;ctx.fillStyle='#5b4634';ctx.fillRect(fx,y-22,1.5,18);
+    ctx.fillStyle=['#c94f4f','#e0b64a','#4f7fc9','#6fa377'][i%4];ctx.beginPath();ctx.moveTo(fx+1.5,y-22);ctx.lineTo(fx+9,y-19);ctx.lineTo(fx+1.5,y-16);ctx.closePath();ctx.fill();}
+}
+function drawTowerSign(){
+  if(tower.total===null)return null;
+  var st=towerStage(tower.total);
+  var l1='みんなの塔 '+(st.n+1)+'本め',l2='今日 +'+tower.today.toLocaleString('ja-JP')+'個・次の段まで '+st.toNext.toLocaleString('ja-JP')+'個';
+  ctx.font='13px DotGothic16, sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+  // ゲームコーナーの看板と重ならないよう、塔の右はしにそろえて左へのばす
+  var tw=Math.max(ctx.measureText(l1).width,ctx.measureText(l2).width)+16,x=TWR.x+41-tw/2,y=TWR.y+28;
+  ctx.fillStyle='#fbf6e6';rr(x-tw/2,y-19,tw,38,3);ctx.fill();ctx.strokeStyle='#5b4634';ctx.lineWidth=1.5;ctx.stroke();
+  ctx.fillStyle='#3b2d22';ctx.fillText(l1,x,y-8);ctx.fillText(l2,x,y+10);
+  return {x:x,y:y,w:tw};
+}
 var pinsToday=null;
 function loadPins(){
   if(!sb)return;
@@ -539,6 +639,7 @@ function stepMe(dt,now){
   }
   stepDoors();
   var seated=!!seatOf(me);
+  stepStudyBricks(dt,seated);
   if(seated&&!me.ss){me.ss=Date.now();trackDirty=true;saveLocal();}
   else if(!seated&&me.ss&&me.moving){me.ss=0;trackDirty=true;}
   stepZone();stepCartGift();
@@ -767,14 +868,16 @@ function drawStars(vw,vh){
 }
 var HANABI={x:POND.x-190,y:POND.y-175,w:380,h:150,name:'花火'};
 function drawHanabi(){
-  if(!wx.hanabi)return;
+  var party=Date.now()<partyUntil||FORCE==='party';
+  if(!wx.hanabi&&!party)return;
+  var HB=wx.hanabi?HANABI:{x:TWR.x-170,y:10,w:340,h:170},launchY=wx.hanabi?POND.y:TWR.y-30;
   var ms=Date.now(),gap=1400,s0=Math.floor(ms/gap);
   ctx.globalCompositeOperation='lighter';
   for(var s=s0-2;s<=s0;s++){
     var hv=h32(s),age=(ms-s*gap)/1000;
-    var cx=HANABI.x+(hv%HANABI.w),cy=HANABI.y+((hv>>>9)%HANABI.h),hue=(hv>>>17)%360;
+    var cx=HB.x+(hv%HB.w),cy=Math.max(camY+30,HB.y+((hv>>>9)%HB.h)),hue=(hv>>>17)%360;
     if(age<0.55){ // 打ち上がる
-      var r=age/0.55;ctx.fillStyle='rgba(255,240,200,.9)';ctx.beginPath();ctx.arc(cx,POND.y+(cy-POND.y)*r,2,0,7);ctx.fill();continue;
+      var r=age/0.55;ctx.fillStyle='rgba(255,240,200,.9)';ctx.beginPath();ctx.arc(cx,launchY+(cy-launchY)*r,2,0,7);ctx.fill();continue;
     }
     var a=age-0.55,life=2.2;if(a>life)continue;
     var R=(46+hv%44)*(1-Math.exp(-3.2*a)),al=Math.max(0,1-a/life),n=reduce?12:26;
@@ -1010,7 +1113,7 @@ function drawLibrary(t,vw,vh){
   var labels=[{p:me,text:'あなた・'+statusText(me),fill:'#fff7c2',alpha:1}];
   Object.keys(others).sort().forEach(function(key){if(here(others[key]))labels.push({p:others[key],text:statusText(others[key]),fill:'#ffffff',alpha:1});});
   residents.forEach(function(n){if(here(n))labels.push({p:n,text:n.npc.label,fill:'#dfe8d8',alpha:1});});
-  placeLabels(labels,signs);
+  placeLabels(labels,signs);drawFloats();
 }
 // 町から見た図書館の入口。中にいる人数を出す
 function drawDoorSign(){
@@ -1177,7 +1280,7 @@ function frame(t){
   TREES.forEach(function(p){items.push([p[1],1,p]);});
   BENCHES.forEach(function(p){items.push([p[1],2,p]);});
   LAMPS.forEach(function(p){items.push([p[1],3,p]);});
-  items.push([TOWER.y,8,TOWER]);
+  items.push([TOWER.y,8,TOWER]);items.push([TWR.y,14,TWR]);
   if(wx.cart)items.push([455,9,wx.cart]);
   for(k in cars)items.push([cars[k].y,12,cars[k]]);
   ghosts.forEach(function(g){items.push([g.y,7,g]);});
@@ -1195,6 +1298,7 @@ function frame(t){
     else if(it[1]===10)drawDog(o,t);
     else if(it[1]===11)drawFire(t);
     else if(it[1]===12)drawCar(o);
+    else if(it[1]===14)drawTownTower();
     else drawCat(o,t);});
   if(wx.rain>0){ctx.fillStyle=(wx.snow?'rgba(225,232,240,':'rgba(60,80,115,')+(0.17*wx.rain)+')';ctx.fillRect(camX,camY,vw,vh);}
   if(!reduce)drawSteam(t);
@@ -1208,6 +1312,9 @@ function frame(t){
     for(var ck in cars){var cc=cars[ck],hx=cc.x+cc.dir*46,hg=ctx.createRadialGradient(hx,cc.y-10,2,hx,cc.y-10,46);
       hg.addColorStop(0,'rgba(255,240,170,'+(0.5*light.dark)+')');hg.addColorStop(1,'rgba(255,240,170,0)');
       ctx.fillStyle=hg;ctx.fillRect(hx-46,cc.y-56,92,92);}
+    if(tower.total!==null){var th=towerStage(tower.total).height;ctx.fillStyle='rgba(255,224,140,'+(0.9*light.dark)+')';
+      for(var ty=8;ty<th;ty+=14){var tw2=towerHalf(ty);ctx.fillRect(TWR.x-tw2-1,TWR.y-6-ty,2,2);ctx.fillRect(TWR.x+tw2-1,TWR.y-6-ty,2,2);}
+      if(th>0){ctx.beginPath();ctx.arc(TWR.x,TWR.y-7-th,3,0,7);ctx.fill();}}
     var fg=ctx.createRadialGradient(FIRE.x,FIRE.y-12,4,FIRE.x,FIRE.y-12,120);
     fg.addColorStop(0,'rgba(255,170,80,'+(0.6*light.dark)+')');fg.addColorStop(1,'rgba(255,170,80,0)');
     ctx.fillStyle=fg;ctx.fillRect(FIRE.x-120,FIRE.y-132,240,240);
@@ -1220,11 +1327,12 @@ function frame(t){
   drawSky(t,vw,vh);drawStars(vw,vh);drawHanabi();
   var signs=ZONES.map(function(z){return drawSign(z,!!bell.bell&&bell.zone===z);});
   signs.push(drawDoorSign());
+  var tsign=drawTowerSign();if(tsign)signs.push(tsign);
   var labels=[{p:me,text:'あなた・'+statusText(me),fill:'#fff7c2',alpha:1}];
   Object.keys(others).sort().forEach(function(key){if(here(others[key]))labels.push({p:others[key],text:statusText(others[key]),fill:'#ffffff',alpha:1});});
   residents.forEach(function(n){if(here(n))labels.push({p:n,text:n.npc.label,fill:'#dfe8d8',alpha:1});});
   ghosts.forEach(function(g){labels.push({p:g,text:STATUS_MAP[g.st]+'・'+ageText(g.now),fill:'#ffffff',alpha:Math.min(0.75,g.alpha+0.2)});});
-  placeLabels(labels,signs);
+  placeLabels(labels,signs);drawFloats();
   if(bell.bell)drawPointer(bell.zone,vw,vh);
   else if(wx.hanabi)drawPointer(HANABI,vw,vh);
   requestAnimationFrame(frame);
@@ -1235,7 +1343,9 @@ var townGame={
   inZone:function(){return me.r==='town'&&!!me.zone&&me.zone.st==='game';},
   // 遊べるのはポモドーロの休憩の間だけ
   canPlay:function(){var pm=pomodoro();return {ok:!pm.focus||FORCE==='game',left:pm.left};},
-  setPlaying:function(v){me.pl=v?1:0;if(v){me.tx=null;keys={};}trackDirty=true;lastTrack=0;},
+  nearTower:function(){return me.r==='town'&&Math.hypot(me.x-TWR.x,me.y-(TWR.y+14))<64;},
+  addBricks:addBricks,
+  setPlaying:function(v){me.pl=v===true?1:(v||0);if(v){me.tx=null;keys={};}trackDirty=true;lastTrack=0;},
   addPins:addPins
 };
 window.onstaylyTown={game:townGame,env:function(){

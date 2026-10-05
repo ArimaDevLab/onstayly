@@ -66,10 +66,13 @@ grant execute on function public.check_in(uuid) to anon, authenticated;
 -- みんなで積み上げる数字(いまはボウリングのピンだけ)。だれが足したかは保存しない。
 create table if not exists public.town_counters (
   day date not null,
-  key text not null check (key in ('pins')),
+  key text not null check (key in ('pins', 'bricks')),
   total bigint not null default 0,
   primary key (day, key)
 );
+-- 数えるものを増やしたときは、ここの一覧も増やす
+alter table public.town_counters drop constraint if exists town_counters_key_check;
+alter table public.town_counters add constraint town_counters_key_check check (key in ('pins', 'bricks'));
 alter table public.town_counters enable row level security;
 
 -- 今日(日本時間)の合計に足して、足したあとの合計を返す。1回に足せるのは30まで。
@@ -85,7 +88,7 @@ begin
   insert into town_counters (day, key, total) values (d, k, n)
   on conflict (day, key) do update set total = town_counters.total + excluded.total
   returning total into t;
-  delete from town_counters where day < d - 30;
+  delete from town_counters where key = 'pins' and day < d - 30;
   return t;
 end $$;
 
@@ -97,3 +100,33 @@ $$;
 
 grant execute on function public.bump_counter(text, int) to anon, authenticated;
 grant execute on function public.counter_today(text) to anon, authenticated;
+
+-- みんなの塔のレンガ。図書館での勉強1分で1個、休憩の積み木遊びでも増える。
+-- 日ごとに行を持ち、塔の高さは全部の日の合計で決まる(消さない)。1回に足せるのは30個まで。
+create or replace function public.add_bricks(n int)
+returns table (bricks_total bigint, bricks_today bigint)
+language plpgsql security definer set search_path = public as $$
+declare
+  d date := (now() at time zone 'Asia/Tokyo')::date;
+begin
+  if n is null or n < 1 or n > 30 then
+    raise exception 'invalid bricks';
+  end if;
+  insert into town_counters (day, key, total) values (d, 'bricks', n)
+  on conflict (day, key) do update set total = town_counters.total + excluded.total;
+  return query
+    select coalesce(sum(c.total), 0)::bigint,
+           coalesce(sum(c.total) filter (where c.day = d), 0)::bigint
+    from town_counters c where c.key = 'bricks';
+end $$;
+
+create or replace function public.tower_state()
+returns table (bricks_total bigint, bricks_today bigint)
+language sql stable security definer set search_path = public as $$
+  select coalesce(sum(c.total), 0)::bigint,
+         coalesce(sum(c.total) filter (where c.day = (now() at time zone 'Asia/Tokyo')::date), 0)::bigint
+  from town_counters c where c.key = 'bricks';
+$$;
+
+grant execute on function public.add_bricks(int) to anon, authenticated;
+grant execute on function public.tower_state() to anon, authenticated;
