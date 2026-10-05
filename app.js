@@ -884,7 +884,7 @@ function drawLibrary(t,vw,vh){
   drawFootprints();
 
   var items=[];
-  LIB_DESKS.forEach(function(d){items.push([d.y+7,1,d]);});
+  LIB_DESKS.forEach(function(d){items.push([d.y+12,1,d]);}); // 席に着いた人より手前に描く
   LIB_SEATS.forEach(function(q){if(q.chair)items.push([q.y-2,2,q]);});
   for(k in others)if(here(others[k]))items.push([others[k].y,4,others[k]]);
   items.push([me.y,5,me]);
