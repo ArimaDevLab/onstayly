@@ -84,6 +84,8 @@ canvas:focus-visible{box-shadow:inset 0 0 0 3px var(--accent)}
 .guide-card ul{margin:0;padding-left:1.2em;display:flex;flex-direction:column;gap:8px;font-size:14px}
 .guide-card b{font-weight:700}
 .guide-note{margin:0;font-size:12px;color:var(--muted)}
+.guide-note a{color:var(--accent);font-weight:700;text-underline-offset:2px}
+.guide-note a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .guide-go{align-self:flex-end;background:var(--accent);color:var(--accent-fg);border-color:var(--accent);padding:8px 20px;font-size:15px}
 </style>
 </head>
@@ -123,6 +125,7 @@ canvas:focus-visible{box-shadow:inset 0 0 0 3px var(--accent)}
         <li><b>つかれたら町で気分転換。</b>公園の猫、焚き火、露天風呂、屋台があります。</li>
       </ul>
       <p class="guide-note">保存するのは「いた場所」と「していたこと」だけです。名前や連絡先は集めません。</p>
+      <p class="guide-note">ほしい機能や気づいたことは、<a href="https://forms.gle/RPL5rw8tHXhAPPZL7" target="_blank" rel="noopener">こちらのフォーム</a>から教えてください。どんどん追加していきます。</p>
       <button type="button" class="chip guide-go" id="guide-close">はじめる</button>
     </div>
   </div>
