@@ -99,7 +99,7 @@ function colorIdx(v,fallback){return (Number.isInteger(v)&&v>=0&&v<COLORS.length
 var myKey=uuid();                       // このタブ
 var traceId=storedId('irudake-trace');  // 自分の痕跡(1人1つ)
 var visitorId=storedId('irudake-visitor'); // 今日の人数を数えるためだけの番号
-var me={r:'town',ss:0,x:675,y:435,st:'zone',manual:'zone',zone:null,c:0,tx:null,ty:null,phase:0,moving:false,dir:1,fd:0,side:1};
+var me={r:'town',ss:0,aw:0,x:675,y:435,st:'zone',manual:'zone',zone:null,c:0,tx:null,ty:null,phase:0,moving:false,dir:1,fd:0,side:1};
 var others={};      // presence key -> 人
 var traces=[],tracesAt=0;
 var foot=[];        // 足あと {x,y,t}
@@ -155,9 +155,11 @@ function statusText(p){
   if(nearPet(p,PETS.cat))return 'ねこといっしょ';
   if(nearPet(p,PETS.dog))return 'いぬといっしょ';
   if(hasItem(p))return ITEMS[p.it];
-  if(p.ss&&seatOf(p)){ // 図書館の席に着いてからの時間
-    var mins=Math.floor((Date.now()-p.ss)/60000);
-    if(mins>=1)return STATUS_MAP[p.st]+' '+(mins>=60?Math.floor(mins/60)+'時間'+(mins%60)+'分':mins+'分');
+  if(p.ss&&seatOf(p)){ // 図書館の席に着いてからの時間(席をはずしている間は止まる)
+    var away=isAway(p),mins=Math.floor(((away?p.aw:Date.now())-p.ss)/60000);
+    var dur=mins>=60?Math.floor(mins/60)+'時間'+(mins%60)+'分':mins+'分';
+    if(away)return '席をはずしています'+(mins>=1?'('+dur+')':'');
+    if(mins>=1)return STATUS_MAP[p.st]+' '+dur;
   }
   return STATUS_MAP[p.st];
 }
@@ -325,6 +327,7 @@ function syncPeers(){
     if(!o)o=others[k]={r:room,x:x,y:y,tx:null,ty:null,phase:0,moving:false,dir:1,fd:0,side:1};
     else if(o.r!==room){o.r=room;o.x=x;o.y=y;o.tx=null;o.moving=false;}
     else if(o.tx===null&&Math.hypot(o.x-x,o.y-y)>40){o.tx=x;o.ty=y;o.direct=true;}
+    o.aw=(typeof m.aw==='number'&&m.aw>Date.now()-86400000&&m.aw<=Date.now()+5000)?m.aw:0;
     o.ss=(typeof m.ss==='number'&&m.ss>Date.now()-86400000&&m.ss<=Date.now()+5000)?m.ss:0;
     o.st=STATUS_MAP[m.st]?m.st:'zone';
     o.c=colorIdx(m.c,5);
@@ -349,10 +352,13 @@ function sendMove(tx,ty,direct){
   ch.send({type:'broadcast',event:'mv',payload:{k:myKey,r:me.r,x:Math.round(me.x),y:Math.round(me.y),
     tx:Math.round(tx),ty:Math.round(ty),d:direct?1:0}});
 }
+function presenceNow(){
+  return {r:me.r,ss:me.ss||0,aw:me.aw||0,x:Math.round(me.x),y:Math.round(me.y),st:me.st,c:me.c,t:traceId,it:hasItem(me)?me.it:null,iu:hasItem(me)?me.iu:0};
+}
 function track(now){
   if(!online||!ch||!trackDirty||now-lastTrack<1000)return;
   lastTrack=now;trackDirty=false;
-  ch.track({r:me.r,ss:me.ss||0,x:Math.round(me.x),y:Math.round(me.y),st:me.st,c:me.c,t:traceId,it:hasItem(me)?me.it:null,iu:hasItem(me)?me.iu:0});
+  ch.track(presenceNow());
 }
 function checkIn(){
   sb.rpc('check_in',{v:visitorId}).then(function(r){
@@ -388,7 +394,35 @@ function stepTrace(dt){
   stillT+=dt;
   if(stillT>15&&(traceStale()||Date.now()-traceAt>300000))saveTrace();
 }
+/* 席をはずす: ほかのアプリやタブに切りかえると、勉強時間が止まる。
+   15秒以内に戻れば、はずしたことにしない。画面を消したときも同じ扱いになる。 */
+var AWAY_GRACE=15000;
+function isAway(p){return !!(p.aw&&seatOf(p)&&Date.now()-p.aw>AWAY_GRACE);}
+function setAway(hidden){
+  if(hidden){
+    if(me.aw)return;
+    me.aw=Date.now();
+    if(online&&ch){try{ch.track(presenceNow());}catch(e){}} // 画面が隠れると後からは送れないので、その場で送る
+  }else if(me.aw){
+    var gone=Date.now()-me.aw;
+    if(me.ss&&gone>AWAY_GRACE)me.ss+=gone; // はずしていた分は勉強時間に入れない
+    me.aw=0;trackDirty=true;lastTrack=0;saveLocal();
+  }
+}
+// 席に着いている間は、スマホの画面が自動で消えないようにする(対応していないブラウザでは何もしない)
+var wake=null;
+function syncWake(){
+  var want=!!seatOf(me)&&document.visibilityState==='visible';
+  if(want&&!wake&&navigator.wakeLock){
+    wake='pending';
+    navigator.wakeLock.request('screen').then(function(w){
+      wake=w;w.addEventListener('release',function(){if(wake===w)wake=null;});
+      if(!seatOf(me)){w.release();}
+    },function(){wake=null;});
+  }else if(!want&&wake&&wake!=='pending'){var w=wake;wake=null;w.release();}
+}
 document.addEventListener('visibilitychange',function(){
+  setAway(document.visibilityState==='hidden');syncWake();
   if(document.visibilityState==='visible'&&sb&&!online){clearTimeout(rejoinT);rejoinT=null;rejoinSoon(300);}
   if(document.visibilityState==='hidden'){saveLocal();if(traceStale()||Date.now()-traceAt>60000)saveTrace();}
 });
@@ -704,7 +738,7 @@ function drawHanabi(){
   ctx.globalCompositeOperation='source-over';
 }
 function updateBell(){
-  updateWorld();
+  updateWorld();syncWake();
   bell=bellState();
   var el=$('bell');
   if(bell.bell){
@@ -917,7 +951,7 @@ function drawLibrary(t,vw,vh){
       ctx.fillStyle='rgba(60,40,20,.18)';ctx.beginPath();ctx.ellipse(o.x,o.y+3,19,6,0,0,7);ctx.fill();
       ctx.fillStyle='#4f6f8a';rr(o.x-17,o.y-30,34,32,7);ctx.fill();
       ctx.fillStyle='#6488a6';rr(o.x-17,o.y-10,34,13,5);ctx.fill();
-    }else drawPerson(o,it[1]===5,reduce);
+    }else{var aw=isAway(o);if(aw)ctx.globalAlpha=0.45;drawPerson(o,it[1]===5,reduce);if(aw)ctx.globalAlpha=1;}
   });
   var signs=[drawSign(LIB_ZONES[0],false)];
   var labels=[{p:me,text:'あなた・'+statusText(me),fill:'#fff7c2',alpha:1}];
