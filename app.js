@@ -42,6 +42,7 @@ var BELLS=[
   {h:12,m:0,len:60,st:'eat',name:'ひるごはん'},
   {h:19,m:0,len:60,st:'eat',name:'夕ごはん'},
   {h:21,m:0,len:30,st:'exercise',name:'運動'},
+  {h:21,m:30,len:30,st:'sleep',name:'おやすみ(小中学生)',text:'小中学生はそろそろおやすみの時間です'},
   {h:22,m:0,len:60,st:'bath',name:'おふろ'},
   {h:23,m:30,len:60,st:'sleep',name:'消灯'}
 ];
@@ -230,6 +231,11 @@ function buildUI(){
     b.addEventListener('click',function(){me.c=i;changed();});
     $('swatches').appendChild(b);
   });
+  // はじめての人にだけ案内を出す。「あそびかた」でいつでも開ける。
+  var guide=$('guide');
+  if(!lsGet('irudake-seen'))guide.hidden=false;
+  $('guide-close').addEventListener('click',function(){guide.hidden=true;lsSet('irudake-seen','1');});
+  $('guide-open').addEventListener('click',function(){guide.hidden=false;$('guide-close').focus();});
   $('g-wave').addEventListener('click',function(){doGesture('wave');});
   $('g-bow').addEventListener('click',function(){doGesture('bow');});
   syncUI();
@@ -703,7 +709,7 @@ function updateBell(){
   var el=$('bell');
   if(bell.bell){
     var n=zoneCount(bell.zone);
-    el.textContent=bell.bell.name+'の時間です('+hhmm(bell.end)+'まで)。'+bell.zone.name+'に'+(n?n+'人います':'まだ誰もいません');
+    el.textContent=(bell.bell.text||bell.bell.name+'の時間です')+'('+hhmm(bell.end)+'まで)。'+bell.zone.name+'に'+(n?n+'人います':'まだ誰もいません');
     el.classList.add('on');
   }else{
     var tn=townTime();
