@@ -62,3 +62,38 @@ end $$;
 grant execute on function public.leave_trace(uuid, int, int, text, int) to anon, authenticated;
 grant execute on function public.recent_traces() to anon, authenticated;
 grant execute on function public.check_in(uuid) to anon, authenticated;
+
+-- みんなで積み上げる数字(いまはボウリングのピンだけ)。だれが足したかは保存しない。
+create table if not exists public.town_counters (
+  day date not null,
+  key text not null check (key in ('pins')),
+  total bigint not null default 0,
+  primary key (day, key)
+);
+alter table public.town_counters enable row level security;
+
+-- 今日(日本時間)の合計に足して、足したあとの合計を返す。1回に足せるのは30まで。
+create or replace function public.bump_counter(k text, n int)
+returns bigint language plpgsql security definer set search_path = public as $$
+declare
+  d date := (now() at time zone 'Asia/Tokyo')::date;
+  t bigint;
+begin
+  if k <> 'pins' or n is null or n < 0 or n > 30 then
+    raise exception 'invalid counter';
+  end if;
+  insert into town_counters (day, key, total) values (d, k, n)
+  on conflict (day, key) do update set total = town_counters.total + excluded.total
+  returning total into t;
+  delete from town_counters where day < d - 30;
+  return t;
+end $$;
+
+create or replace function public.counter_today(k text)
+returns bigint language sql stable security definer set search_path = public as $$
+  select coalesce((select c.total from town_counters c
+    where c.day = (now() at time zone 'Asia/Tokyo')::date and c.key = k), 0);
+$$;
+
+grant execute on function public.bump_counter(text, int) to anon, authenticated;
+grant execute on function public.counter_today(text) to anon, authenticated;
