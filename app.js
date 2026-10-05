@@ -186,6 +186,7 @@ function drawItem(p,x,y){
 }
 // 頭の上に出す言葉。動物のそばに座っている間はそちらを出す(保存はしない)。
 function statusText(p){
+  if(p.pl)return 'ボウリング中';
   if(nearPet(p,PETS.cat))return 'ねこといっしょ';
   if(nearPet(p,PETS.dog))return 'いぬといっしょ';
   if(hasItem(p))return ITEMS[p.it];
@@ -299,6 +300,7 @@ function connect(){
   join();
   checkIn();loadTraces();
   setInterval(loadTraces,60000);setInterval(checkIn,300000);
+  loadPins();setInterval(loadPins,60000);
 }
 // 町の回線に入る。切れたら5秒後に入り直す。
 var rejoinT=null;
@@ -361,6 +363,7 @@ function syncPeers(){
     if(!o)o=others[k]={r:room,x:x,y:y,tx:null,ty:null,phase:0,moving:false,dir:1,fd:0,side:1};
     else if(o.r!==room){o.r=room;o.x=x;o.y=y;o.tx=null;o.moving=false;}
     else if(o.tx===null&&Math.hypot(o.x-x,o.y-y)>40){o.tx=x;o.ty=y;o.direct=true;}
+    o.pl=m.pl===1?1:0;
     o.aw=(typeof m.aw==='number'&&m.aw>Date.now()-86400000&&m.aw<=Date.now()+5000)?m.aw:0;
     o.ss=(typeof m.ss==='number'&&m.ss>Date.now()-86400000&&m.ss<=Date.now()+5000)?m.ss:0;
     o.st=STATUS_MAP[m.st]?m.st:'zone';
@@ -386,8 +389,21 @@ function sendMove(tx,ty,direct){
   ch.send({type:'broadcast',event:'mv',payload:{k:myKey,r:me.r,x:Math.round(me.x),y:Math.round(me.y),
     tx:Math.round(tx),ty:Math.round(ty),d:direct?1:0}});
 }
+// 町のみんなで今日たおしたピンの合計(ボウリング)。データベースが未設定のときは出さない。
+var pinsToday=null;
+function loadPins(){
+  if(!sb)return;
+  sb.rpc('counter_today',{k:'pins'}).then(function(r){if(!r.error&&typeof r.data==='number')pinsToday=r.data;},function(){});
+}
+function addPins(n){
+  if(!sb)return Promise.resolve(null);
+  return sb.rpc('bump_counter',{k:'pins',n:n}).then(function(r){
+    if(r.error||typeof r.data!=='number')return null;
+    pinsToday=r.data;return r.data;
+  },function(){return null;});
+}
 function presenceNow(){
-  return {r:me.r,ss:me.ss||0,aw:me.aw||0,x:Math.round(me.x),y:Math.round(me.y),st:me.st,c:me.c,t:traceId,it:hasItem(me)?me.it:null,iu:hasItem(me)?me.iu:0};
+  return {r:me.r,ss:me.ss||0,aw:me.aw||0,pl:me.pl?1:0,x:Math.round(me.x),y:Math.round(me.y),st:me.st,c:me.c,t:traceId,it:hasItem(me)?me.it:null,iu:hasItem(me)?me.iu:0};
 }
 function track(now){
   if(!online||!ch||!trackDirty||now-lastTrack<1000)return;
@@ -632,6 +648,7 @@ function drawTower(ang){
 }
 function drawSign(z,active){
   var n=zoneCount(z),text=z.name+(n?' '+n+'人':'');
+  if(z.st==='game'&&!z.r&&pinsToday!==null)text+='・今日 '+pinsToday.toLocaleString('ja-JP')+'本';
   ctx.font='13px DotGothic16, sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
   var tw=ctx.measureText(text).width+16,x=z.x+z.w/2,y=z.y-3;
   ctx.fillStyle=active?'#ffe07a':'#fbf6e6';rr(x-tw/2,y-11,tw,22,3);ctx.fill();
@@ -1213,7 +1230,15 @@ function frame(t){
   requestAnimationFrame(frame);
 }
 // 環境音(sound.js)に渡す、いまの天気と自分の位置
-window.onstaylyTown={env:function(){
+// ミニゲーム(bowling.js)から使う入口
+var townGame={
+  inZone:function(){return me.r==='town'&&!!me.zone&&me.zone.st==='game';},
+  // 遊べるのはポモドーロの休憩の間だけ
+  canPlay:function(){var pm=pomodoro();return {ok:!pm.focus||FORCE==='game',left:pm.left};},
+  setPlaying:function(v){me.pl=v?1:0;if(v){me.tx=null;keys={};}trackDirty=true;lastTrack=0;},
+  addPins:addPins
+};
+window.onstaylyTown={game:townGame,env:function(){
   var b=zoneBySt('bath');
   function near(px,py){var d=Math.hypot(me.x-px,me.y-py),f=Math.max(0,Math.min(1,1-(d-70)/320));return f*f;}
   if(me.r==='lib')return {car:0,anyCar:0,rain:(wx.snow?0:wx.rain)*0.35,night:0,bath:0,pond:0,fire:0};
