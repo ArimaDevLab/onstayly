@@ -404,8 +404,13 @@ cv.addEventListener('pointerdown',function(e){
   me.ty=Math.min(RH-2,Math.max(26,(e.clientY-r.top)/scale+camY));
   // 図書館の建物をタップしたら入口へ向かう
   if(me.r==='town'&&me.tx>lb.x&&me.tx<lb.x+lb.w&&me.ty>lb.y&&me.ty<lb.y+lb.h+8){me.tx=LIB.door.x;me.ty=LIB.door.y-6;}
-  me.stuck=0;sendMove(me.tx,me.ty,false);cv.focus({preventScroll:true});
+  me.stuck=0;sendMove(me.tx,me.ty,false);
+  // 指でのタップでは画面にフォーカスを当てない(ブラウザによっては当たった印に色が付くため)
+  if(e.pointerType==='mouse')cv.focus({preventScroll:true});
 });
+// タップをブラウザの既定の動き(選択・強調表示・長押しメニュー)に回さない
+cv.addEventListener('touchstart',function(e){e.preventDefault();},{passive:false});
+cv.addEventListener('contextmenu',function(e){e.preventDefault();});
 var KEYMAP={ArrowUp:'u',ArrowDown:'d',ArrowLeft:'l',ArrowRight:'r',w:'u',s:'d',a:'l',d:'r',W:'u',S:'d',A:'l',D:'r'};
 cv.addEventListener('keydown',function(e){var k=KEYMAP[e.key];if(k){keys[k]=true;me.tx=null;e.preventDefault();}});
 cv.addEventListener('keyup',function(e){var k=KEYMAP[e.key];if(k)keys[k]=false;});
