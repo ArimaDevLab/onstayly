@@ -137,19 +137,19 @@ function loop(t){
   draw();raf=requestAnimationFrame(loop);
 }
 function show(){
-  if(open||!G.inZone()||!G.canPlay().ok)return;
-  open=true;panel.hidden=false;btn.hidden=true;G.setPlaying(true);newGame();
+  if(open||window.onstaylyGameOpen||!G.inZone()||!G.canPlay().ok)return;
+  open=true;window.onstaylyGameOpen=true;$('game-title').textContent='ボウリング';panel.hidden=false;btn.hidden=true;G.setPlaying(true);newGame();
   last=performance.now();raf=requestAnimationFrame(loop);cv.focus({preventScroll:true});
 }
 function hide(){
   if(!open)return;
-  open=false;panel.hidden=true;cancelAnimationFrame(raf);G.setPlaying(false);S=null;
+  open=false;window.onstaylyGameOpen=false;panel.hidden=true;cancelAnimationFrame(raf);G.setPlaying(false);S=null;
 }
 btn.addEventListener('click',show);
 closeBtn.addEventListener('click',hide);
-againBtn.addEventListener('click',function(){if(G.canPlay().ok)newGame();else againBtn.hidden=true;});
-cv.addEventListener('pointerdown',function(e){e.preventDefault();act();});
-cv.addEventListener('keydown',function(e){if(e.key===' '||e.key==='Enter'){e.preventDefault();act();}});
+againBtn.addEventListener('click',function(){if(!open)return;if(G.canPlay().ok)newGame();else againBtn.hidden=true;});
+cv.addEventListener('pointerdown',function(e){if(!open)return;e.preventDefault();act();});
+cv.addEventListener('keydown',function(e){if(open&&(e.key===' '||e.key==='Enter')){e.preventDefault();act();}});
 
 // 遊べる場所と時間のときだけ、ボタンを出す
 setInterval(function(){
