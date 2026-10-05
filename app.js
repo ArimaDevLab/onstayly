@@ -120,6 +120,40 @@ function updatePets(){
   PETS.dog=petAt(DOG_ROUTE,T+20,40,24);
   PETS.cat.loved=petLoved(PETS.cat);PETS.dog.loved=petLoved(PETS.dog);
 }
+/* 町の住人。本物の人ではないので、エプロンや帽子で見分けがつくようにし、人数にも数えない。
+   動物と同じく、動きは時計から決まる。from〜to は出てくる時間帯(日本時間)。 */
+var RESIDENTS=[
+  {r:'lib',label:'司書さん',col:'#7a6a8a',apron:'#f4efe2',hat:'bun',from:8,to:22,sit:30,walk:14,off:0,
+    route:[[440,152],[250,152],[440,152],[620,152],[800,160],[620,152]]},
+  {r:'town',label:'番台さん',col:'#5b7a8a',apron:'#f4efe2',hat:'band',from:7,to:22,sit:40,walk:8,off:11,
+    route:[[205,662],[118,662]]},
+  {r:'town',label:'食堂の人',col:'#c9774a',apron:'#ffffff',hat:'chef',from:7,to:21,sit:25,walk:8,off:5,
+    route:[[1112,262],[1192,304],[1272,262],[1192,362]]},
+  {r:'town',label:'そうじの人',col:'#6f8f5a',apron:null,hat:'straw',tool:'broom',from:7,to:18,sit:12,walk:20,off:31,
+    route:[[842,692],[850,932],[1190,946],[850,932]]}
+];
+var residents=[];
+function updateResidents(){
+  var T=Date.now()/1000,h=townTime().h;
+  residents=[];
+  RESIDENTS.forEach(function(d,i){
+    if(h<d.from||h>=d.to)return;
+    var a=petAt(d.route,T+d.off,d.sit,d.walk);
+    residents.push({npc:d,r:d.r,x:a.x,y:a.y,dir:a.dir,moving:!a.sitting,phase:a.phase,c:5,col:d.col,st:'zone'});
+  });
+}
+function drawResident(p){
+  var d=p.npc,x=p.x,y=p.y;
+  if(d.apron){ctx.fillStyle=d.apron;rr(x-6,y-25,12,15,3);ctx.fill();ctx.fillRect(x-4,y-28,2,4);ctx.fillRect(x+2,y-28,2,4);}
+  if(d.hat==='chef'){ctx.fillStyle='#ffffff';rr(x-7,y-52,14,11,4);ctx.fill();ctx.fillRect(x-7,y-44,14,3);}
+  else if(d.hat==='straw'){ctx.fillStyle='#d9b96a';ctx.beginPath();ctx.ellipse(x,y-42,14,4,0,0,7);ctx.fill();ctx.beginPath();ctx.arc(x,y-43,7,Math.PI,0);ctx.fill();}
+  else if(d.hat==='bun'){ctx.fillStyle='#3a2c26';ctx.beginPath();ctx.arc(x,y-46,4.5,0,7);ctx.fill();
+    ctx.strokeStyle='#2b2422';ctx.lineWidth=1;ctx.strokeRect(x-6.5,y-37.5,5,4);ctx.strokeRect(x+1.5,y-37.5,5,4);}
+  else if(d.hat==='band'){ctx.fillStyle='#f4efe2';ctx.fillRect(x-8,y-42,16,3);}
+  if(d.tool==='broom'){var bx=x+13*p.dir,sw=p.moving?Math.sin(p.phase*0.6)*3:0;
+    ctx.strokeStyle='#8a6a48';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(bx-2*p.dir,y-30);ctx.lineTo(bx+sw,y-3);ctx.stroke();
+    ctx.fillStyle='#d9b96a';ctx.fillRect(bx+sw-4,y-4,8,5);}
+}
 function nearPet(p,a){return roomOf(p)==='town'&&a.sitting&&!p.moving&&Math.hypot(p.x-a.x,p.y-a.y)<40;}
 function petLoved(a){
   if(nearPet(me,a))return true;
@@ -815,6 +849,7 @@ function drawPerson(p,isMe,still){
     return;
   }
   drawBody(p,isMe,still,kind==='bath');
+  if(p.npc)drawResident(p);
   if(wx.rain>0.3&&me.r==='town')drawUmbrella(p);
 }
 function drawBody(p,isMe,still,bath){
@@ -830,7 +865,7 @@ function drawBody(p,isMe,still,bath){
     ctx.fillRect(x+1-sw*3,y-12,5,12-Math.max(0,-sw)*2);}
   var g=gestureOf(p),bow=g&&g.type==='bow',wave=g&&g.type==='wave';
   if(bow){ctx.save();ctx.translate(x,y-12);ctx.rotate(p.dir*Math.sin(g.k*Math.PI)*0.5);ctx.translate(-x,-(y-12));}
-  ctx.fillStyle=COLORS[p.c]||COLORS[5];rr(x-8,y-28+bob,16,18,4);ctx.fill();
+  ctx.fillStyle=p.col||COLORS[p.c]||COLORS[5];rr(x-8,y-28+bob,16,18,4);ctx.fill();
   if(!(wave&&p.dir<0))ctx.fillRect(x-11,y-26+bob+sw*2,4,11);
   if(!(wave&&p.dir>0))ctx.fillRect(x+7,y-26+bob-sw*2,4,11);
   if(wave){
@@ -932,6 +967,7 @@ function drawLibrary(t,vw,vh){
   LIB_DESKS.forEach(function(d){items.push([d.y+12,1,d]);}); // 席に着いた人より手前に描く
   LIB_SEATS.forEach(function(q){if(q.chair)items.push([q.y-2,2,q]);});
   for(k in others)if(here(others[k]))items.push([others[k].y,4,others[k]]);
+  residents.forEach(function(n){if(here(n))items.push([n.y,4,n]);});
   items.push([me.y,5,me]);
   items.sort(function(a,b){return a[0]-b[0]||a[1]-b[1];});
   items.forEach(function(it){var o=it[2];
@@ -956,6 +992,7 @@ function drawLibrary(t,vw,vh){
   var signs=[drawSign(LIB_ZONES[0],false)];
   var labels=[{p:me,text:'あなた・'+statusText(me),fill:'#fff7c2',alpha:1}];
   Object.keys(others).sort().forEach(function(key){if(here(others[key]))labels.push({p:others[key],text:statusText(others[key]),fill:'#ffffff',alpha:1});});
+  residents.forEach(function(n){if(here(n))labels.push({p:n,text:n.npc.label,fill:'#dfe8d8',alpha:1});});
   placeLabels(labels,signs);
 }
 // 町から見た図書館の入口。中にいる人数を出す
@@ -1105,7 +1142,7 @@ function frame(t){
   var dt=Math.min(0.05,(t-last)/1000||0);last=t;
   stepMe(dt,t);if(!me.moving)me.phase+=dt*9;
   var k;for(k in others){stepOther(others[k],dt);if(!others[k].moving)others[k].phase+=dt*9;}
-  updatePets();stepCars(dt);stepTrace(dt);track(t);
+  updatePets();updateResidents();stepCars(dt);stepTrace(dt);track(t);
   bellT-=dt;if(bellT<=0){bellT=1;updateBell();}
   clockT-=dt;if(clockT<=0){clockT=20;light=daylight();$('clock').textContent=light.text;}
 
@@ -1128,6 +1165,7 @@ function frame(t){
   for(k in cars)items.push([cars[k].y,12,cars[k]]);
   ghosts.forEach(function(g){items.push([g.y,7,g]);});
   for(k in others)if(here(others[k]))items.push([others[k].y,4,others[k]]);
+  residents.forEach(function(n){if(here(n))items.push([n.y,4,n]);});
   items.push([me.y,5,me]);items.push([PETS.cat.y,6,PETS.cat]);items.push([PETS.dog.y,10,PETS.dog]);items.push([FIRE.y,11,FIRE]);
   items.sort(function(a,b){return a[0]-b[0];});
   items.forEach(function(it){var o=it[2];
@@ -1167,6 +1205,7 @@ function frame(t){
   signs.push(drawDoorSign());
   var labels=[{p:me,text:'あなた・'+statusText(me),fill:'#fff7c2',alpha:1}];
   Object.keys(others).sort().forEach(function(key){if(here(others[key]))labels.push({p:others[key],text:statusText(others[key]),fill:'#ffffff',alpha:1});});
+  residents.forEach(function(n){if(here(n))labels.push({p:n,text:n.npc.label,fill:'#dfe8d8',alpha:1});});
   ghosts.forEach(function(g){labels.push({p:g,text:STATUS_MAP[g.st]+'・'+ageText(g.now),fill:'#ffffff',alpha:Math.min(0.75,g.alpha+0.2)});});
   placeLabels(labels,signs);
   if(bell.bell)drawPointer(bell.zone,vw,vh);
