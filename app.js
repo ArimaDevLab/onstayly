@@ -838,10 +838,10 @@ var SKY=[];(function(){for(var i=0;i<110;i++)SKY.push([h32(i*2+11)/4294967296,h3
 function drawSky(t,vw,vh){
   var i,px,py;
   if(wx.rain>0&&!wx.snow){
-    ctx.strokeStyle='rgba(205,225,255,'+(0.55*wx.rain)+')';ctx.lineWidth=1.3;ctx.beginPath();
+    ctx.strokeStyle='rgba(205,225,255,'+(0.3*wx.rain)+')';ctx.lineWidth=1;ctx.beginPath();
     for(i=0;i<110;i++){
       px=camX+((SKY[i][0]*(vw+40)+t*0.07)%(vw+40))-20;py=camY+((SKY[i][1]*(vh+30)+t*(0.75+(i%5)*0.07))%(vh+30))-15;
-      ctx.moveTo(px,py);ctx.lineTo(px-4,py+13);}
+      ctx.moveTo(px,py);ctx.lineTo(px-3,py+9);}
     ctx.stroke();
   }
   var flake=wx.rain>0&&wx.snow?'#ffffff':wx.season.fall;
@@ -928,12 +928,23 @@ function drawBuilding(b){
   var wy=b.y+b.h*0.38,wh=b.h*0.62;
   ctx.fillStyle='rgba(30,50,30,.18)';ctx.fillRect(b.x+6,b.y+b.h-2,b.w,8);
   ctx.fillStyle=b.wall;ctx.fillRect(b.x,wy,b.w,wh);
+  ctx.fillStyle='rgba(0,0,0,.07)';ctx.fillRect(b.x,wy+wh-12,b.w,12);            // 壁のすそ
+  ctx.fillStyle='rgba(255,255,255,.08)';ctx.fillRect(b.x,wy,4,wh);               // 壁の角
+  ctx.strokeStyle='rgba(40,30,25,.28)';ctx.lineWidth=1.5;ctx.strokeRect(b.x,wy,b.w,wh);
   ctx.fillStyle=b.roof;ctx.beginPath();ctx.moveTo(b.x-10,wy+4);ctx.lineTo(b.x+16,b.y);ctx.lineTo(b.x+b.w-16,b.y);ctx.lineTo(b.x+b.w+10,wy+4);ctx.closePath();ctx.fill();
-  ctx.fillStyle='rgba(0,0,0,.12)';ctx.fillRect(b.x,wy+4,b.w,5);
+  ctx.fillStyle='rgba(255,255,255,.14)';ctx.fillRect(b.x+16,b.y,b.w-32,3);       // 屋根のてっぺん
+  ctx.strokeStyle='rgba(30,20,20,.35)';ctx.lineWidth=2;ctx.stroke();
+  ctx.fillStyle='rgba(0,0,0,.2)';ctx.fillRect(b.x,wy+4,b.w,6);                    // 軒の影
   var dw=26,dx=b.x+b.w/2-dw/2;
+  ctx.fillStyle='#4a3326';ctx.fillRect(dx-2,b.y+b.h-42,dw+4,42);
   ctx.fillStyle='#6b4a36';ctx.fillRect(dx,b.y+b.h-40,dw,40);
   ctx.fillStyle='#f3e7a8';ctx.fillRect(dx+17,b.y+b.h-22,4,4);
-  winRects(b).forEach(function(w){ctx.fillStyle='#bcd9e6';ctx.fillRect(w[0],w[1],w[2],w[3]);ctx.fillStyle='rgba(255,255,255,.5)';ctx.fillRect(w[0],w[1],w[2],4);});
+  winRects(b).forEach(function(w){
+    ctx.fillStyle='#5b4a3e';ctx.fillRect(w[0]-2,w[1]-2,w[2]+4,w[3]+4);             // 窓わく
+    ctx.fillStyle='#bcd9e6';ctx.fillRect(w[0],w[1],w[2],w[3]);
+    ctx.fillStyle='rgba(255,255,255,.45)';ctx.fillRect(w[0],w[1],w[2],4);
+    ctx.fillStyle='#5b4a3e';ctx.fillRect(w[0]+w[2]/2-1,w[1],2,w[3]);                // 桟
+    ctx.fillStyle='rgba(0,0,0,.18)';ctx.fillRect(w[0]-3,w[1]+w[3]+2,w[2]+6,3);});   // 窓台の影
   if(b.label==='図書館'){ctx.fillStyle='#7a8a6a';rr(b.x+b.w/2-20,b.y+b.h-1,40,11,3);ctx.fill();}
   if(b.label){
     ctx.font='15px DotGothic16, sans-serif';var tw=ctx.measureText(b.label).width+18;
@@ -1258,6 +1269,35 @@ function daylight(){
 }
 var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 var last=0,clockT=0,bellT=0,light=daylight(),bell=bellState();
+// 夜: 暗さを別の板に塗り、明かりの届くところだけ穴をあけてから重ねる(灰色のもやにならない)
+var nightCv=document.createElement('canvas'),nctx=nightCv.getContext('2d');
+function hole(c,x,y,r,a,sy){
+  c.save();c.translate(x,y);c.scale(1,sy||1);
+  var g=c.createRadialGradient(0,0,0,0,0,r);
+  g.addColorStop(0,'rgba(0,0,0,'+a+')');g.addColorStop(0.45,'rgba(0,0,0,'+(a*0.6)+')');g.addColorStop(1,'rgba(0,0,0,0)');
+  c.fillStyle=g;c.beginPath();c.arc(0,0,r,0,7);c.fill();c.restore();
+}
+function glow(x,y,r,rgb,a,sy){
+  ctx.save();ctx.translate(x,y);ctx.scale(1,sy||1);
+  var g=ctx.createRadialGradient(0,0,0,0,0,r);
+  g.addColorStop(0,'rgba('+rgb+','+a+')');g.addColorStop(1,'rgba('+rgb+',0)');
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,r,0,7);ctx.fill();ctx.restore();
+}
+function drawNight(D){
+  if(nightCv.width!==cv.width||nightCv.height!==cv.height){nightCv.width=cv.width;nightCv.height=cv.height;}
+  var c=nctx;
+  c.setTransform(1,0,0,1,0,0);c.globalCompositeOperation='source-over';c.clearRect(0,0,nightCv.width,nightCv.height);
+  c.fillStyle='rgba(16,22,58,'+(0.66*D)+')';c.fillRect(0,0,nightCv.width,nightCv.height);
+  c.setTransform(scale*dpr,0,0,scale*dpr,-camX*scale*dpr,-camY*scale*dpr);
+  c.globalCompositeOperation='destination-out';
+  LAMPS.forEach(function(p){hole(c,p[0],p[1]-4,92,0.8,0.6);hole(c,p[0],p[1]-46,26,0.9);});
+  for(var ck in cars){var cc=cars[ck];hole(c,cc.x+cc.dir*44,cc.y-6,48,0.75,0.6);}
+  hole(c,FIRE.x,FIRE.y-10,130,0.85,0.75);
+  c.fillStyle='rgba(0,0,0,.9)';
+  BUILDINGS.forEach(function(b){winRects(b).forEach(function(w){c.fillRect(w[0],w[1],w[2],w[3]);});});
+  c.globalCompositeOperation='source-over';
+  ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.drawImage(nightCv,0,0);ctx.restore();
+}
 function frame(t){
   var dt=Math.min(0.05,(t-last)/1000||0);last=t;
   stepMe(dt,t);if(!me.moving)me.phase+=dt*9;
@@ -1304,23 +1344,21 @@ function frame(t){
   if(!reduce)drawSteam(t);
   if(light.warm>0){ctx.fillStyle='rgba(255,150,70,'+(0.16*light.warm)+')';ctx.fillRect(camX,camY,vw,vh);}
   if(light.dark>0){
-    ctx.fillStyle='rgba(18,26,66,'+(0.58*light.dark)+')';ctx.fillRect(camX,camY,vw,vh);
+    drawNight(light.dark,vw,vh);
     ctx.globalCompositeOperation='lighter';
-    LAMPS.forEach(function(p){var g=ctx.createRadialGradient(p[0],p[1]-40,2,p[0],p[1]-20,90);
-      g.addColorStop(0,'rgba(255,225,140,'+(0.5*light.dark)+')');g.addColorStop(1,'rgba(255,225,140,0)');
-      ctx.fillStyle=g;ctx.fillRect(p[0]-90,p[1]-110,180,180);});
-    for(var ck in cars){var cc=cars[ck],hx=cc.x+cc.dir*46,hg=ctx.createRadialGradient(hx,cc.y-10,2,hx,cc.y-10,46);
-      hg.addColorStop(0,'rgba(255,240,170,'+(0.5*light.dark)+')');hg.addColorStop(1,'rgba(255,240,170,0)');
-      ctx.fillStyle=hg;ctx.fillRect(hx-46,cc.y-56,92,92);}
     if(tower.total!==null){var th=towerStage(tower.total).height;ctx.fillStyle='rgba(255,224,140,'+(0.9*light.dark)+')';
       for(var ty=8;ty<th;ty+=14){var tw2=towerHalf(ty);ctx.fillRect(TWR.x-tw2-1,TWR.y-6-ty,2,2);ctx.fillRect(TWR.x+tw2-1,TWR.y-6-ty,2,2);}
       if(th>0){ctx.beginPath();ctx.arc(TWR.x,TWR.y-7-th,3,0,7);ctx.fill();}}
-    var fg=ctx.createRadialGradient(FIRE.x,FIRE.y-12,4,FIRE.x,FIRE.y-12,120);
-    fg.addColorStop(0,'rgba(255,170,80,'+(0.6*light.dark)+')');fg.addColorStop(1,'rgba(255,170,80,0)');
-    ctx.fillStyle=fg;ctx.fillRect(FIRE.x-120,FIRE.y-132,240,240);
-    ctx.fillStyle='rgba(255,214,120,'+(0.75*light.dark)+')';
-    BUILDINGS.forEach(function(b){winRects(b).forEach(function(w){ctx.fillRect(w[0],w[1],w[2],w[3]);});});
+    // 光そのもの: 電球のまわりの小さなにじみと、地面に落ちる暖かい色だけを足す
+    var D=light.dark;
+    LAMPS.forEach(function(p){
+      glow(p[0],p[1]-48,16,'255,214,140',0.5*D,1);
+      glow(p[0],p[1]-2,70,'255,170,80',0.16*D,0.55);});
+    for(var ck in cars){var cc=cars[ck];glow(cc.x+cc.dir*40,cc.y-6,40,'255,236,170',0.18*D,0.6);}
+    glow(FIRE.x,FIRE.y-10,110,'255,150,60',0.22*D,0.7);
     ctx.globalCompositeOperation='source-over';
+    ctx.fillStyle='rgba(255,212,128,'+(0.85*D)+')';
+    BUILDINGS.forEach(function(b){winRects(b).forEach(function(w){ctx.fillRect(w[0],w[1],w[2]/2-1,w[3]);ctx.fillRect(w[0]+w[2]/2+1,w[1],w[2]/2-1,w[3]);});});
   }
   if(bell.bell&&bell.elapsed<60&&!reduce){for(var ri=0;ri<3;ri++){var rad=((t/25)+ri*40)%120;
     ctx.strokeStyle='rgba(255,224,122,'+(0.7*(1-rad/120))+')';ctx.lineWidth=2;ctx.beginPath();ctx.arc(TOWER.x,TOWER.y-40,rad,0,7);ctx.stroke();}}
