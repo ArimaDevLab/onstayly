@@ -931,93 +931,132 @@ function drawFootprints(){
     ctx.beginPath();ctx.ellipse(f.x,f.y,2.6,1.6,0,0,7);ctx.fill();}
   ctx.globalAlpha=1;
 }
-function winRects(b){
-  var out=[],wy=b.y+b.h*0.38+26,n=Math.floor((b.w-30)/46),gap=(b.w-n*26)/(n+1);
-  for(var i=0;i<n;i++){var x=b.x+gap+i*(26+gap);if(Math.abs(x+13-(b.x+b.w/2))<26)continue;out.push([x,wy,26,24]);}
-  return out;
+/* 建物のドット絵。1ドット=1ピクセルの小さな板に描いて覚えておき、ぼかさずに貼る。
+   ドットの大きさ(画面ごとに少し違う)と昼夜が変わったときだけ描き直す。 */
+var BSTYLE={'図書館':'brick','ゲームセンター':'panel','食堂':'plank','銭湯':'plaster','宿':'lattice','家':'siding'};
+function bldBitmap(b){
+  var d=DOT(),night=!!wx.night,key=d.toFixed(3)+'|'+night;
+  if(b._bmp&&b._bmp.key===key)return b._bmp;
+  var deco=b.label||'家',style=BSTYLE[deco],Wd=Math.round(b.w/d),Hd=Math.round(b.h/d),ov=Math.round(10/d);
+  var wyD=Math.round(Hd*0.38),T=deco==='銭湯'?Math.round(66/d):deco==='家'?Math.round(28/d):0;
+  var cv=document.createElement('canvas');cv.width=Wd+ov*2;cv.height=Hd+T;
+  var g=cv.getContext('2d'),OL='#2a2230',TRIM='#f4efe2',wins=[];
+  function P(x,y,w,h,c){g.fillStyle=c;g.fillRect(x+ov,y+T,w,h);}
+  var wall=b.wall,wD=shade(wall,-0.12),wDD=shade(wall,-0.25),wL=shade(wall,0.25);
+  var roof=b.roof,rD=shade(roof,-0.25),rL=shade(roof,0.22);
+  // 煙突(屋根の後ろ)
+  if(T){var chW=deco==='銭湯'?8:6,chX=Math.round(Wd*0.72),chC=deco==='銭湯'?'#b9b2a6':'#8a5a44';
+    P(chX-1,-T,chW+2,T+wyD/2,OL);P(chX,-T+1,chW,T+wyD/2-1,chC);P(chX+chW-2,-T+1,2,T+wyD/2-1,shade(chC,-0.2));
+    P(chX-1,-T,chW+2,2,OL);if(deco==='銭湯'){P(chX,-T+5,chW,2,'#a8453f');}}
+  // 屋根: 段ごとに瓦、左右のふちは濃く
+  var rows=wyD+2;
+  for(var r=0;r<rows;r++){
+    var t=r/(rows-1),inset=Math.round((16/d)*(1-t)-ov*t),x0=inset,x1=Wd-1-inset;
+    P(x0,r,x1-x0+1,1,(r%3===2)?rD:roof);
+    if(r%3===1)for(var k=x0+((r/3|0)%2?2:0);k<=x1;k+=4)P(k,r,1,1,rD);
+    if(r===0||r===1)P(x0+1,r,x1-x0-1,1,r===0?OL:rL);
+    P(x0,r,1,1,OL);P(x1,r,1,1,OL);
+  }
+  P(-ov,rows-1,Wd+ov*2,1,OL);
+  // 壁
+  var wy0=rows,wh=Hd-wy0;
+  P(0,wy0,Wd,wh,wall);
+  for(var y=wy0;y<Hd;y++)for(var x=0;x<Wd;x++){
+    var ly=y-wy0,c=null;
+    if(style==='siding'&&ly%3===2)c=wD;
+    else if(style==='brick'&&(ly%3===2||(x+((ly/3|0)%2)*3)%6===0))c=wD;
+    else if(style==='plank'&&x%4===3)c=wD;
+    else if(style==='panel'&&(x%10===9||ly===4))c=wD;
+    else if(style==='lattice'&&(x%6===0)&&ly>2)c=wD;
+    else if(style==='plaster'&&y>=Hd-6)c=((x+y)%3===0)?'#6f86a6':'#4f6a90';
+    if(c)P(x,y,1,1,c);
+  }
+  P(0,wy0,Wd,2,wDD);P(0,wy0,1,wh,wL);P(Wd-1,wy0,1,wh,OL);P(0,Hd-1,Wd,1,OL);P(0,wy0,1,wh,OL);
+  // ドア
+  var dw=Math.max(7,Math.round(26/d)),dh=Math.round(40/d),dx=Math.round(Wd/2-dw/2),dy=Hd-dh;
+  P(dx-2,dy-2,dw+4,dh+2,TRIM);P(dx-1,dy-1,dw+2,dh+1,OL);P(dx,dy,dw,dh,'#6b4a36');
+  P(dx+1,dy+1,dw-2,1,'#5a3d2c');P(dx+1,dy+Math.round(dh/2),dw-2,1,'#5a3d2c');P(dx+Math.round(dw/2),dy+1,1,dh-1,'#5a3d2c');
+  P(dx+dw-2,dy+Math.round(dh*0.55),1,1,'#f3e7a8');
+  P(dx+Math.round(dw/2)-1,dy-4,2,2,night?'#ffe08a':'#f3e7a8');                      // 玄関の小さな灯り
+  // 窓
+  var ww=Math.max(6,Math.round(24/d)),wh2=Math.max(6,Math.round(24/d)),wyy=wy0+Math.max(3,Math.round(wh*0.22));
+  // ドアの左右それぞれに、入るだけ窓を等間隔に並べる
+  var wxs=[];
+  var mg=deco==='図書館'?12:4;
+  [[2,dx-mg],[dx+dw+mg,Wd-3]].forEach(function(seg){var len=seg[1]-seg[0],k=Math.max(len>=ww?1:0,Math.floor((len+5)/(ww+9)));
+    if(deco==='図書館'&&k>2)k=2;
+    for(var j=0;j<k;j++)wxs.push(Math.round(seg[0]+(len-ww)*(k===1?0.5:j/(k-1))));});
+  for(var i=0;i<wxs.length;i++){var wx0=wxs[i];
+    P(wx0-1,wyy-1,ww+2,wh2+2,OL);P(wx0,wyy,ww,wh2,TRIM);P(wx0+1,wyy+1,ww-2,wh2-2,'#9fc9da');
+    P(wx0+2,wyy+2,2,1,'#e6f4f8');P(wx0+2,wyy+3,1,1,'#e6f4f8');
+    P(wx0+Math.floor(ww/2),wyy,1,wh2,TRIM);P(wx0,wyy+Math.floor(wh2/2),ww,1,TRIM);
+    if(style==='lattice')for(var q=wx0+2;q<wx0+ww-1;q+=2)P(q,wyy+1,1,wh2-2,'#8a6a48');
+    if(deco==='図書館'){P(wx0,wyy,1,1,wall);P(wx0+ww-1,wyy,1,1,wall);P(wx0-1,wyy-1,1,1,wall);P(wx0+ww,wyy-1,1,1,wall);}
+    P(wx0-2,wyy+wh2+1,ww+4,1,TRIM);P(wx0-2,wyy+wh2+2,ww+4,1,wDD);
+    if(deco==='家'){P(wx0+1,wyy+1,1,wh2-2,'#e86a8a');P(wx0+ww-2,wyy+1,1,wh2-2,'#e86a8a');   // カーテン
+      P(wx0-1,wyy+wh2+3,ww+2,2,'#7a5a3c');for(var f=0;f<ww;f+=2)P(wx0+f,wyy+wh2+2,1,1,(f/2)%2?'#f2c14e':'#e2553f');}
+    if(deco==='食堂'){for(var f2=-1;f2<=ww;f2++){P(wx0+f2,wyy-4,1,3,((f2+1)>>1)%2?TRIM:'#c94f4f');if((f2&1)===0)P(wx0+f2,wyy-1,1,1,'#c94f4f');}}
+    wins.push([wx0+1,wyy+1,ww-2,wh2-2]);
+  }
+  // 建物ごとの目じるし
+  if(deco==='図書館'){[dx-9,dx+dw+4].forEach(function(cx){var ch=Hd-wy0-4;
+    P(cx-1,wy0+3,7,ch+1,OL);P(cx,wy0+4,5,ch,'#efe6d2');P(cx+3,wy0+4,2,ch,'#d3c8b0');P(cx,wy0+4,1,ch,'#fbf6ea');
+    P(cx-2,wy0+3,9,2,'#d3c8b0');P(cx-2,Hd-2,9,2,'#d3c8b0');});
+    P(dx-12,Hd-1,dw+24,1,'#bdb3a0');}
+  if(deco==='ゲームセンター'){for(var nx=0;nx<Wd;nx+=4)P(nx,wy0+3,3,1,(nx/4)%2?(night?'#ff6fb5':'#e88ab8'):(night?'#5fe8ff':'#8ad0e0'));
+    var sx=Math.round(Wd/2)-3;P(sx-1,wy0+5,9,8,OL);P(sx,wy0+6,7,6,'#2a2a40');P(sx+3,wy0+6,1,6,'#ffd54a');P(sx,wy0+8,7,1,'#ffd54a');P(sx+2,wy0+7,3,3,'#ffd54a');
+    P(dx+dw+4,dy+2,5,7,OL);P(dx+dw+5,dy+3,3,5,'#e2553f');P(dx+dw+5,dy+5,3,1,'#f2c14e');}
+  if(deco==='食堂'||deco==='銭湯'){var nc=deco==='食堂'?'#3f5f8a':'#2f4a7a';P(dx-1,dy,dw+2,1,OL);
+    for(var nn=0;nn<3;nn++){var nw=Math.floor((dw)/3);P(dx+nn*nw+(nn?1:0),dy+1,nw-(nn?1:0),5,nc);}
+    if(deco==='銭湯'){P(dx+Math.round(dw/2)-1,dy+2,2,2,TRIM);}}
+  if(deco==='宿'){[dx-4,dx+dw+1].forEach(function(lx){P(lx,dy+2,3,6,OL);P(lx,dy+3,3,4,night?'#ffb35a':'#e2553f');P(lx,dy+5,3,1,shade(night?'#ffb35a':'#e2553f',-0.3));});}
+  // 町の座標での窓(夜の明かり用)
+  var bx=Math.round(b.x/d)*d-ov*d,by=Math.round(b.y/d)*d-T*d;
+  b._bmp={key:key,cv:cv,x:bx,y:by,d:d,wy:Math.round(b.y/d)*d+wy0*d,
+    wins:wins.map(function(w){return [bx+(w[0]+ov)*d,by+(w[1]+T)*d,w[2]*d,w[3]*d];})};
+  return b._bmp;
 }
+function winRects(b){return bldBitmap(b).wins;}
 function drawBuilding(b){
-  var wy=b.y+b.h*0.38,wh=b.h*0.62;
+  var B=bldBitmap(b);
   ctx.fillStyle='rgba(30,50,30,.16)';ctx.fillRect(b.x+6,b.y+b.h-2,b.w,8);
   if(PIX.on&&ditherPat){ctx.fillStyle=ditherPat;ctx.fillRect(b.x+6,b.y+b.h-2,b.w,8);}
-  ctx.fillStyle=b.wall;ctx.fillRect(b.x,wy,b.w,wh);
-  ctx.fillStyle='rgba(0,0,0,.07)';ctx.fillRect(b.x,wy+wh-12,b.w,12);            // 壁のすそ
-  ctx.fillStyle='rgba(255,255,255,.08)';ctx.fillRect(b.x,wy,4,wh);               // 壁の角
-  ctx.strokeStyle='rgba(40,30,25,.28)';ctx.lineWidth=1.5;ctx.strokeRect(b.x,wy,b.w,wh);
-  var deco=b.label||'家';
-  if(deco==='家'||deco==='銭湯'){var chx=b.x+b.w*0.72,chw=deco==='銭湯'?22:16,chh=deco==='銭湯'?70:30;     // 煙突
-    ctx.fillStyle='#2a2230';ctx.fillRect(chx-2,b.y-chh+8,chw+4,chh);ctx.fillStyle=deco==='銭湯'?'#b9b2a6':'#8a5a44';ctx.fillRect(chx,b.y-chh+10,chw,chh);
-    ctx.fillStyle='rgba(0,0,0,.2)';ctx.fillRect(chx,b.y-chh+10,chw,4);
-    if(deco==='銭湯'){ctx.fillStyle='#a8453f';ctx.fillRect(chx,b.y-chh+22,chw,5);}}
-  ctx.fillStyle=b.roof;ctx.beginPath();ctx.moveTo(b.x-10,wy+4);ctx.lineTo(b.x+16,b.y);ctx.lineTo(b.x+b.w-16,b.y);ctx.lineTo(b.x+b.w+10,wy+4);ctx.closePath();ctx.fill();
-  ctx.save();ctx.clip();ctx.fillStyle='rgba(0,0,0,.13)';                         // 瓦の段
-  for(var ry=b.y+9;ry<wy;ry+=9)ctx.fillRect(b.x-12,ry,b.w+24,2);
-  ctx.fillStyle='rgba(0,0,0,.08)';for(var rx=b.x-10;rx<b.x+b.w+10;rx+=14)ctx.fillRect(rx,b.y,2,wy-b.y);
-  ctx.restore();ctx.beginPath();ctx.moveTo(b.x-10,wy+4);ctx.lineTo(b.x+16,b.y);ctx.lineTo(b.x+b.w-16,b.y);ctx.lineTo(b.x+b.w+10,wy+4);ctx.closePath();
-  ctx.fillStyle='rgba(255,255,255,.14)';ctx.fillRect(b.x+16,b.y,b.w-32,3);       // 屋根のてっぺん
-  ctx.strokeStyle='rgba(30,20,20,.35)';ctx.lineWidth=2;ctx.stroke();
-  ctx.fillStyle='rgba(0,0,0,.2)';ctx.fillRect(b.x,wy+4,b.w,6);                    // 軒の影
-  var dw=26,dx=b.x+b.w/2-dw/2;
-  ctx.fillStyle='#4a3326';ctx.fillRect(dx-2,b.y+b.h-42,dw+4,42);
-  ctx.fillStyle='#6b4a36';ctx.fillRect(dx,b.y+b.h-40,dw,40);
-  ctx.fillStyle='#f3e7a8';ctx.fillRect(dx+17,b.y+b.h-22,4,4);
-  winRects(b).forEach(function(w){
-    ctx.fillStyle='#5b4a3e';ctx.fillRect(w[0]-2,w[1]-2,w[2]+4,w[3]+4);             // 窓わく
-    ctx.fillStyle='#bcd9e6';ctx.fillRect(w[0],w[1],w[2],w[3]);
-    ctx.fillStyle='rgba(255,255,255,.45)';ctx.fillRect(w[0],w[1],w[2],4);
-    ctx.fillStyle='#5b4a3e';ctx.fillRect(w[0]+w[2]/2-1,w[1],2,w[3]);                // 桟
-    ctx.fillStyle='rgba(0,0,0,.18)';ctx.fillRect(w[0]-3,w[1]+w[3]+2,w[2]+6,3);});   // 窓台の影
-  drawDeco(b,deco,wy,wh,dx,dw);
+  ctx.save();ctx.imageSmoothingEnabled=false;ctx.drawImage(B.cv,B.x,B.y,B.cv.width*B.d,B.cv.height*B.d);ctx.restore();
   if(b.label==='図書館'){ctx.fillStyle='#7a8a6a';rr(b.x+b.w/2-20,b.y+b.h-1,40,11,3);ctx.fill();}
   if(b.label){
+    var wy=B.wy+2;
     ctx.font='15px DotGothic16, sans-serif';var tw=ctx.measureText(b.label).width+18;
     ctx.fillStyle='#fbf6e6';rr(b.x+b.w/2-tw/2,wy-8,tw,24,3);ctx.fill();
     ctx.strokeStyle='#5b4634';ctx.lineWidth=1.5;ctx.stroke();
     wtext(b.label,b.x+b.w/2,wy+5,'15px DotGothic16, sans-serif','#3b2d22');
   }
 }
-// 建物ごとの目じるし
-function drawDeco(b,deco,wy,wh,dx,dw){
-  var by=b.y+b.h,cx=b.x+b.w/2,ws=winRects(b),i;
-  if(deco==='図書館'){                                        // 柱と石段
-    [dx-22,dx-12,dx+dw+6,dx+dw+16].forEach(function(px){ctx.fillStyle='#2a2230';ctx.fillRect(px-1,wy+18,8,wh-18);ctx.fillStyle='#efe6d2';ctx.fillRect(px,wy+18,6,wh-18);ctx.fillStyle='rgba(0,0,0,.12)';ctx.fillRect(px+4,wy+18,2,wh-18);});
-    ctx.fillStyle='#bdb3a0';ctx.fillRect(dx-26,by-4,dw+52,4);ctx.fillStyle='#a89e8a';ctx.fillRect(dx-30,by,dw+60,4);
-  }else if(deco==='ゲームセンター'){                            // ネオンの帯と星
-    var nt=Date.now()/600,on=wx.night?(Math.sin(nt)>-0.6?1:0.4):0.8;
-    for(i=0;i<b.w;i+=12){ctx.fillStyle=(i/12)%2?'rgba(255,95,170,'+on+')':'rgba(90,220,255,'+on+')';ctx.fillRect(b.x+i,wy+12,10,4);}
-    ctx.fillStyle='#2a2230';ctx.fillRect(cx-13,wy+20,26,22);ctx.fillStyle='#ffd54a';
-    ctx.fillRect(cx-2,wy+23,4,16);ctx.fillRect(cx-8,wy+29,16,4);ctx.fillRect(cx-5,wy+26,10,10);
-  }else if(deco==='食堂'){                                      // しましまの日よけと、のれん
-    ws.forEach(function(w){for(var k=0;k<w[2]+8;k+=6){ctx.fillStyle=(k/6)%2?'#f4efe2':'#c94f4f';ctx.fillRect(w[0]-4+k,w[1]-10,6,8);}
-      ctx.fillStyle='rgba(0,0,0,.2)';ctx.fillRect(w[0]-4,w[1]-2,w[2]+8,2);});
-    noren(dx,by,dw,'#3f5f8a');
-  }else if(deco==='銭湯'){noren(dx,by,dw,'#2f4a7a');
-    ctx.fillStyle='#f4efe2';ctx.fillRect(dx+dw/2-3,by-36,6,6);
-  }else if(deco==='宿'){                                        // ちょうちん
-    [dx-14,dx+dw+6].forEach(function(lx){ctx.fillStyle='#2a2230';ctx.fillRect(lx-1,by-34,10,15);
-      ctx.fillStyle=wx.night?'#ffb35a':'#e2553f';ctx.fillRect(lx,by-33,8,13);ctx.fillStyle='rgba(0,0,0,.25)';ctx.fillRect(lx,by-29,8,1);ctx.fillRect(lx,by-25,8,1);});
-  }else{                                                        // 家: 花のプランター
-    ws.forEach(function(w,j){ctx.fillStyle='#7a5a3c';ctx.fillRect(w[0]-2,w[1]+w[3]+2,w[2]+4,5);
-      for(var k=0;k<4;k++){ctx.fillStyle=k%2?'#4f8a4c':(j%2?'#e86a8a':'#f2c14e');ctx.fillRect(w[0]+k*6+1,w[1]+w[3]-2,4,4);}});
-  }
+/* 木・ベンチ・街灯のドット絵 */
+var treeCache={};
+function treeGrid(v,snow){
+  var key=v+'|'+snow;if(treeCache[key])return treeCache[key];
+  var W=22,H=27,r=[9.6,9.0,10.0][v],cx=10.5,cy=10,grid=[],x,y,inside=[];
+  for(y=0;y<H;y++){inside.push([]);for(x=0;x<W;x++){var dx=x-cx,dy=y-cy,a=Math.atan2(dy,dx),re=r+0.45*Math.sin(a*6+v*2)+0.3*Math.sin(a*3+v);
+    inside[y].push(dx*dx+dy*dy*1.08<re*re);}}
+  for(y=0;y<H;y++){var row='';for(x=0;x<W;x++){var ch='.';
+    if(inside[y][x]){var edge=!(inside[y-1]&&inside[y-1][x])||!(inside[y+1]&&inside[y+1][x])||!inside[y][x-1]||!inside[y][x+1];
+      if(edge)ch='O';else{var l=(-(x-cx)-(y-cy)*1.2)/r;
+        ch=l>0.55?'b':l>0.35?((x+y)%2?'b':'a'):l<-0.55?'d':l<-0.35?((x+y)%2?'d':'a'):'a';
+        if(snow&&y<cy-r*0.35&&l>-0.2)ch='W';}}
+    else if(y>=16&&x>=9&&x<=12){ch=(x===9||x===12)?'O':(x===10?'t':'T');if(y===H-1)ch='O';}
+    else if(y===H-2&&(x===8||x===13))ch='O';
+    row+=ch;}grid.push(row);}
+  return (treeCache[key]=grid);
 }
-function noren(dx,by,dw,c){ctx.fillStyle='#2a2230';ctx.fillRect(dx-4,by-42,dw+8,2);
-  for(var k=0;k<3;k++){ctx.fillStyle=c;ctx.fillRect(dx-3+k*(dw+6)/3,by-40,(dw+6)/3-1,14);}}
 function drawTree(x,y){
   softShadow(x,y,22,7,0.36);
-  ctx.fillStyle='#7a5a3c';ctx.fillRect(x-4,y-24,8,24);
-  ctx.fillStyle=wx.season.a;ctx.beginPath();ctx.arc(x,y-40,24,0,7);ctx.fill();
-  ctx.fillStyle=wx.season.b;ctx.beginPath();ctx.arc(x-7,y-46,14,0,7);ctx.fill();
-  if(wx.snow&&wx.rain>0){ctx.fillStyle='rgba(255,255,255,'+(0.85*wx.rain)+')';ctx.beginPath();ctx.arc(x-2,y-52,15,Math.PI*1.05,Math.PI*1.95);ctx.fill();}
+  var v=((x*7+y*3)>>2)%3,snow=wx.snow&&wx.rain>0.3;
+  drawSprite(treeGrid(v,snow),{O:'#24301f',a:wx.season.a,b:wx.season.b,d:shade(wx.season.a,-0.3),t:'#7a5a3c',T:'#5f4731',W:'#f4f6fb'},x,y,v===1);
 }
-function drawBench(x,y){
-  ctx.fillStyle='#8a6a48';ctx.fillRect(x-22,y-12,44,6);ctx.fillRect(x-22,y-22,44,5);
-  ctx.fillStyle='#5f4731';ctx.fillRect(x-20,y-6,4,7);ctx.fillRect(x+16,y-6,4,7);
-}
-function drawLamp(x,y){
-  ctx.fillStyle='#4b5560';ctx.fillRect(x-2,y-44,4,44);
-  ctx.fillStyle='#f5e7a6';ctx.beginPath();ctx.arc(x,y-48,6,0,7);ctx.fill();
-}
+var BENCH=['OOOOOOOOOOOOOOOO','OwwwwwwwwwwwwwwO','OOOOOOOOOOOOOOOO','OwwwwwwwwwwwwwwO','OWWWWWWWWWWWWWWO','OOOO........OOOO','.OkO........OkO.'];
+function drawBench(x,y){drawSprite(BENCH,{O:'#3a2a20',w:'#a27a50',W:'#8a6a48',k:'#5f4731'},x,y+DOT(),false);}
+var LAMP=['.OOO.','OYyYO','OYYYO','.OOO.','..O..'];for(var li=0;li<11;li++)LAMP.push('.OkO.');LAMP.push('OkkkO','OOOOO');
+function drawLamp(x,y){drawSprite(LAMP,{O:'#2a2230',Y:'#f5e7a6',y:'#fffbe0',k:'#5b6570'},x,y,false);}
 function drawPerson(p,isMe,still){
   var z=zoneAt(p.x,p.y),kind=z?z.st:'';
   if(kind==='sleep'&&p.st==='sleep'&&!p.moving){
