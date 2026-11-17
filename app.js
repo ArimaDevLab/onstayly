@@ -1469,7 +1469,13 @@ function frame(t){
   camX=vw>=RW?(RW-vw)/2:Math.min(RW-vw,Math.max(0,me.x-vw/2));
   camY=vh>=RH?(RH-vh)/2:Math.min(RH-vh,Math.max(0,me.y-30-vh/2));
   var P=(!inLib&&FORCE!=='smooth')?Math.max(2,Math.round(3*scale*dpr)):1,U=scale*dpr/P;
-  if(P>1){camX=Math.round(camX*U)/U;camY=Math.round(camY*U)/U;}   // 1ドット単位で動かして、ちらつかせない
+  if(P>1){
+    // カメラは「自分のドットの位置」から決める。x と y を別々に丸めると、斜めに歩いたとき
+    // 自分とカメラが1ドットずれたり戻ったりして画面が揺れるため。
+    var snap=function(v){return Math.round(v*U)/U;};
+    camX=vw>=RW?snap((RW-vw)/2):Math.min(snap(RW-vw),Math.max(0,snap(me.x)-snap(vw/2)));
+    camY=vh>=RH?snap((RH-vh)/2):Math.min(snap(RH-vh),Math.max(0,snap(me.y)-snap(30+vh/2)));
+  }
   ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle=inLib?'#3a2f2a':'#7fa866';ctx.fillRect(0,0,cv.width,cv.height);
   ctx.setTransform(scale*dpr,0,0,scale*dpr,-camX*scale*dpr,-camY*scale*dpr);
   if(inLib){drawLibrary(t,vw,vh);requestAnimationFrame(frame);return;}
